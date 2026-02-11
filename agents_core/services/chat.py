@@ -41,6 +41,7 @@ async def chat(
     message: str,
     agent_name: str,
     session: AgentSession,
+    context: Any = None,
     model_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run a single chat turn (non-streaming).
@@ -49,6 +50,8 @@ async def chat(
         message: User message text.
         agent_name: Name of a registered agent.
         session: ``AgentSession`` that tracks conversation history.
+        context: Optional context object passed to agent instructions and tools
+            via ``RunContextWrapper``. Can be any dataclass or object.
         model_override: Use a different model than the agent definition.
 
     Returns:
@@ -61,7 +64,11 @@ async def chat(
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
-        result = await Runner.run(starting_agent=agent, input=history)
+        run_kwargs: Dict[str, Any] = {"starting_agent": agent, "input": history}
+        if context is not None:
+            run_kwargs["context"] = context
+
+        result = await Runner.run(**run_kwargs)
         response = result.final_output
 
         await session.add_items([{"role": "assistant", "content": response}])
@@ -81,6 +88,7 @@ async def chat_with_hooks(
     message: str,
     agent_name: str,
     session: AgentSession,
+    context: Any = None,
     tool_friendly_names: Optional[Dict[str, str]] = None,
     model_override: Optional[str] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -94,6 +102,7 @@ async def chat_with_hooks(
         message: User message text.
         agent_name: Name of a registered agent.
         session: ``AgentSession`` for conversation history.
+        context: Optional context object passed to agent instructions and tools.
         tool_friendly_names: Optional ``tool_name → display name`` mapping.
         model_override: Use a different model than the agent definition.
 
@@ -119,7 +128,12 @@ async def chat_with_hooks(
 
         # Run agent with hooks in the background
         async def _run():
-            return await Runner.run(starting_agent=agent, input=history, hooks=hooks)
+            run_kwargs: Dict[str, Any] = {
+                "starting_agent": agent, "input": history, "hooks": hooks,
+            }
+            if context is not None:
+                run_kwargs["context"] = context
+            return await Runner.run(**run_kwargs)
 
         task = asyncio.create_task(_run())
 
@@ -154,6 +168,7 @@ async def chat_streamed(
     message: str,
     agent_name: str,
     session: AgentSession,
+    context: Any = None,
     model_override: Optional[str] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Chat with token-level streaming via ``Runner.run_streamed()``.
@@ -166,6 +181,7 @@ async def chat_streamed(
         message: User message text.
         agent_name: Name of a registered agent.
         session: ``AgentSession`` for conversation history.
+        context: Optional context object passed to agent instructions and tools.
         model_override: Use a different model than the agent definition.
 
     Yields:
@@ -184,7 +200,11 @@ async def chat_streamed(
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
-        result = Runner.run_streamed(starting_agent=agent, input=history)
+        run_kwargs: Dict[str, Any] = {"starting_agent": agent, "input": history}
+        if context is not None:
+            run_kwargs["context"] = context
+
+        result = Runner.run_streamed(**run_kwargs)
 
         tools_called: List[str] = []
 
