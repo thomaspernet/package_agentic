@@ -40,8 +40,6 @@ Run the example:
 python examples/simple_chat_agent.py
 ```
 
----
-
 ## Usage
 
 ### 1. Define a Tool
@@ -91,7 +89,7 @@ result = await Runner.run(agent, "What's the weather in Paris?")
 print(result.final_output)
 ```
 
----
+
 
 ## Chat Service
 
@@ -158,7 +156,7 @@ async for event in chat_streamed(
         print(f"\n\nDone. Tools used: {event['data']['tools_called']}")
 ```
 
----
+
 
 ## Session Persistence
 
@@ -196,7 +194,7 @@ store.archive_session("session-123")      # Archive (keeps data)
 store.clear_session("session-123")        # Delete permanently
 ```
 
----
+
 
 ## Output Models
 
@@ -234,7 +232,7 @@ response.to_dict()
 # {"success": True, "response": "...", "session_id": "...", "tools_called": [...]}
 ```
 
----
+
 
 ## Dynamic Context
 
@@ -290,7 +288,7 @@ result = await Runner.run(
 
 See `examples/dynamic_context_agent.py` for a complete example.
 
----
+
 
 ## Project Structure
 
@@ -324,7 +322,7 @@ package_agentic/
 └── README.md
 ```
 
----
+
 
 ## Core Components
 
@@ -369,7 +367,7 @@ context = AgentContext(
 )
 ```
 
----
+
 
 ## Multi-Agent Orchestration
 
@@ -391,7 +389,7 @@ class MyOrchestrator(AgentOrchestrator):
         return {"success": True, "result": result}
 ```
 
----
+
 
 ## Development
 
@@ -402,7 +400,7 @@ black agents_core/
 ruff check agents_core/
 ```
 
----
+
 
 ## License
 
