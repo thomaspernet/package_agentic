@@ -1,6 +1,7 @@
 """Agent and Tool Registry System."""
 
 from .agent_registry import AgentDefinition, AgentRegistry, get_agent_registry, register_agent
+from .agent_factory import create_agent_from_registry
 from .tool_registry import (
     ToolRegistry,
     get_tool_registry,
@@ -19,6 +20,7 @@ __all__ = [
     "AgentRegistry",
     "get_agent_registry",
     "register_agent",
+    "create_agent_from_registry",
     "ToolRegistry",
     "get_tool_registry",
     "register_tool",

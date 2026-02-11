@@ -8,9 +8,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from .core import BaseAgentRunner
-#from .session import AgentSession
-#from .models.context import AgentContext
-from .services import StreamingHelper
+from .services.events import StreamingHelper
 
 logger = logging.getLogger(__name__)
 

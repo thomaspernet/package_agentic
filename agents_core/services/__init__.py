@@ -1,8 +1,19 @@
-"""Services for agent orchestration logic."""
+"""Services for agent execution and streaming.
 
-from .streaming_helper import (
+Public API::
+
+    # Chat functions
+    from agents_core.services import chat, chat_with_hooks, chat_streamed
+
+    # RunHooks for tool tracking
+    from agents_core.services import StreamingRunHooks
+
+    # Event types + emitter (used by orchestrator)
+    from agents_core.services import StreamingHelper, AgentStartEvent, ...
+"""
+
+from .events import (
     StreamingHelper,
-    # Event types
     BaseEvent,
     AgentStartEvent,
     AgentCompleteEvent,
@@ -12,14 +23,21 @@ from .streaming_helper import (
     AnswerEvent,
     ErrorEvent,
 )
+from .hooks import StreamingRunHooks
+from .chat import chat, chat_with_hooks, chat_streamed
 
 __all__ = [
-    # Main helper
+    # Chat
+    "chat",
+    "chat_with_hooks",
+    "chat_streamed",
+    # Hooks
+    "StreamingRunHooks",
+    # Events
     "StreamingHelper",
-    # Event types for consumers
     "BaseEvent",
     "AgentStartEvent",
-    "AgentCompleteEvent", 
+    "AgentCompleteEvent",
     "ThinkingEvent",
     "ToolCallEvent",
     "StreamingTextEvent",

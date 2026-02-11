@@ -37,32 +37,53 @@ Quick Start:
     )
 """
 
-from .session import AgentSession, ConversationHistory
+from .session import AgentSession, ConversationHistory, SQLiteSessionStore
 from .models.context import AgentContext
+from .models.outputs import ToolOutput, ChatResponse
 from .registry import (
     AgentDefinition,
     AgentRegistry,
     get_agent_registry,
     register_agent,
+    create_agent_from_registry,
     ToolDefinition,
     ToolRegistry,
     get_tool_registry,
     register_tool,
 )
+from .services import (
+    StreamingRunHooks,
+    chat,
+    chat_with_hooks,
+    chat_streamed,
+)
 
 from .orchestrator import AgentOrchestrator
 
 __all__ = [
+    # Session
     "AgentSession",
     "ConversationHistory",
+    "SQLiteSessionStore",
+    # Models
     "AgentContext",
+    "ToolOutput",
+    "ChatResponse",
+    # Registry
     "AgentDefinition",
     "AgentRegistry",
     "get_agent_registry",
     "register_agent",
+    "create_agent_from_registry",
     "ToolDefinition",
     "ToolRegistry",
     "get_tool_registry",
     "register_tool",
+    # Services
+    "StreamingRunHooks",
+    "chat",
+    "chat_with_hooks",
+    "chat_streamed",
+    # Orchestrator
     "AgentOrchestrator",
 ]
