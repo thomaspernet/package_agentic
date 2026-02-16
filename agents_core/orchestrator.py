@@ -77,8 +77,9 @@ class AgentOrchestrator(BaseAgentRunner):
             
             return {
                 "success": True,
-                "result": result,
-                "session_id": session.session_id
+                "result": result["output"],
+                "usage": result["usage"],
+                "session_id": session.session_id,
             }
         
         except Exception as e:

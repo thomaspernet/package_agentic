@@ -8,7 +8,7 @@ import logging
 from typing import Optional, Dict, Any
 from abc import ABC
 
-from agents import Agent, Runner, RunContextWrapper
+from agents import Agent, Runner, RunContextWrapper, Usage
 
 from ..session import AgentSession
 from ..models.context import AgentContext
@@ -184,37 +184,65 @@ class BaseAgentRunner(ABC):
         
         return agent
     
+    @staticmethod
+    def _aggregate_usage(result: Any) -> Dict[str, Any]:
+        """Aggregate token usage from all LLM responses in a run result.
+
+        Args:
+            result: A ``RunResult`` with ``raw_responses``.
+
+        Returns:
+            Dict with token counts.
+        """
+        usage = Usage()
+        for response in result.raw_responses:
+            usage.add(response.usage)
+        return {
+            "requests": usage.requests,
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "input_tokens_details": {
+                "cached_tokens": usage.input_tokens_details.cached_tokens,
+            },
+            "output_tokens_details": {
+                "reasoning_tokens": usage.output_tokens_details.reasoning_tokens,
+            },
+        }
+
     async def run_agent(
         self,
         agent_name: str,
         session: AgentSession,
         context: AgentContext,
         input_message: str = ""
-    ) -> Any:
-        """Run agent and return structured output.
-        
+    ) -> Dict[str, Any]:
+        """Run agent and return structured output with token usage.
+
         SDK automatically handles:
         - Tool execution (execute_cypher_query, etc.)
         - Adding tool results to session as Message(role="tool")
         - Agent seeing results and iterating if needed
-        
+
         Args:
             agent_name: Name of agent to run
             session: Session with conversation history
             context: AgentContext with required data
             input_message: Optional input message for the run
-            
+
         Returns:
-            Agent's structured output (dataclass or final output)
+            Dict with ``output`` (agent's structured output) and ``usage``
+            (token usage dict with requests, input_tokens, output_tokens,
+            total_tokens, input_tokens_details, output_tokens_details).
         """
         # Create the agent with all tools and handoffs properly configured
         agent = await self.create_agent(
             agent_name=agent_name,
             context=context
         )
-        
+
         logger.info(f"▶️  Running agent: {agent_name}")
-        
+
         # Run the agent
         result = await Runner.run(
             starting_agent=agent,
@@ -222,8 +250,10 @@ class BaseAgentRunner(ABC):
             session=session,
             context=context
         )
-        
+
         logger.info(f"✅ Agent '{agent_name}' completed successfully")
-        
-        # Return final output if available, otherwise raw result
-        return result.final_output if hasattr(result, 'final_output') else result
+
+        return {
+            "output": result.final_output if hasattr(result, 'final_output') else result,
+            "usage": self._aggregate_usage(result),
+        }

@@ -47,12 +47,15 @@ class ChatResponse:
         session_id: Session ID for conversation continuity
         tools_called: List of tool names that were invoked
         error: Error message if success is False
+        usage: Token usage dict with requests, input_tokens, output_tokens,
+            total_tokens, input_tokens_details, output_tokens_details
     """
     success: bool
     response: str = ""
     session_id: str = "default"
     tools_called: List[str] = field(default_factory=list)
     error: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         result = {
@@ -64,6 +67,8 @@ class ChatResponse:
             result["tools_called"] = self.tools_called
         if self.error:
             result["error"] = self.error
+        if self.usage:
+            result["usage"] = self.usage
         return result
 
 

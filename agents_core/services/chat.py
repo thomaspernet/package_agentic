@@ -27,7 +27,7 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from agents import Runner, ItemHelpers
+from agents import Runner, ItemHelpers, Usage
 from openai.types.responses import ResponseTextDeltaEvent
 
 from ..registry.agent_factory import create_agent_from_registry
@@ -35,6 +35,33 @@ from ..session import AgentSession
 from .hooks import StreamingRunHooks
 
 logger = logging.getLogger(__name__)
+
+
+def _usage_to_dict(result: Any) -> Dict[str, Any]:
+    """Aggregate token usage from all LLM responses in a run result.
+
+    Args:
+        result: A ``RunResult`` or ``RunResultStreaming`` with ``raw_responses``.
+
+    Returns:
+        Dict with token counts: requests, input_tokens, output_tokens,
+        total_tokens, input_tokens_details, output_tokens_details.
+    """
+    usage = Usage()
+    for response in result.raw_responses:
+        usage.add(response.usage)
+    return {
+        "requests": usage.requests,
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "total_tokens": usage.total_tokens,
+        "input_tokens_details": {
+            "cached_tokens": usage.input_tokens_details.cached_tokens,
+        },
+        "output_tokens_details": {
+            "reasoning_tokens": usage.output_tokens_details.reasoning_tokens,
+        },
+    }
 
 
 async def chat(
@@ -55,8 +82,10 @@ async def chat(
         model_override: Use a different model than the agent definition.
 
     Returns:
-        ``{"success": True, "response": str, "session_id": str, "tools_called": list}``
+        ``{"success": True, "response": str, "session_id": str, "tools_called": list, "usage": dict}``
         or ``{"success": False, "error": str, "session_id": str}`` on failure.
+        The ``usage`` dict contains: ``requests``, ``input_tokens``, ``output_tokens``,
+        ``total_tokens``, ``input_tokens_details``, ``output_tokens_details``.
     """
     try:
         agent = create_agent_from_registry(agent_name, model_override)
@@ -78,6 +107,7 @@ async def chat(
             "response": response,
             "session_id": session.session_id,
             "tools_called": [],
+            "usage": _usage_to_dict(result),
         }
     except Exception as e:
         logger.error("Chat error: %s", e, exc_info=True)
@@ -157,7 +187,11 @@ async def chat_with_hooks(
 
         yield {
             "event": "answer",
-            "data": {"response": response, "tools_called": hooks.tools_called},
+            "data": {
+                "response": response,
+                "tools_called": hooks.tools_called,
+                "usage": _usage_to_dict(result),
+            },
         }
     except Exception as e:
         logger.error("Chat hooks error: %s", e, exc_info=True)
@@ -253,7 +287,11 @@ async def chat_streamed(
 
         yield {
             "event": "answer",
-            "data": {"response": response, "tools_called": tools_called},
+            "data": {
+                "response": response,
+                "tools_called": tools_called,
+                "usage": _usage_to_dict(result),
+            },
         }
     except Exception as e:
         logger.error("Streaming error: %s", e, exc_info=True)
