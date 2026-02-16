@@ -8,6 +8,7 @@ A framework for building AI agents using the OpenAI Agents SDK. Fork this reposi
 - **Registry Pattern** - Central registries for agents, tools, and guardrails
 - **Agent Factory** - `create_agent_from_registry()` builds an `Agent` in one call
 - **Chat Service** - `chat()`, `chat_with_hooks()`, `chat_streamed()` for API endpoints
+- **Token Usage Tracking** - Every chat/run returns token counts (input, output, cached, reasoning)
 - **RunHooks** - Track tool calls in real time via `StreamingRunHooks`
 - **Session** - In-memory or SQLite-backed conversation history
 - **Dynamic Context** - Pass runtime data to instructions and tools
@@ -65,7 +66,7 @@ session = AgentSession(session_id="user-123")
 
 # --- Non-streaming ---
 result = await chat("What's the weather?", "weather_assistant", session)
-# {"success": True, "response": "...", "session_id": "...", "tools_called": [...]}
+# {"success": True, "response": "...", "session_id": "...", "tools_called": [...], "usage": {...}}
 
 # --- Streaming with tool notifications (RunHooks) ---
 async for event in chat_with_hooks("What's the weather?", "weather_assistant", session,
@@ -81,6 +82,28 @@ async for event in chat_streamed("What's the weather?", "weather_assistant", ses
         print(event["data"]["delta"], end="", flush=True)
     elif event["event"] == "answer":
         print(f"\nTools used: {event['data']['tools_called']}")
+```
+
+## Token Usage Tracking
+
+All three chat functions and `BaseAgentRunner.run_agent()` return token usage automatically.
+
+```python
+result = await chat("What's the weather?", "weather_assistant", session)
+print(result["usage"])
+# {
+#     "requests": 2,
+#     "input_tokens": 1500,
+#     "output_tokens": 350,
+#     "total_tokens": 1850,
+#     "input_tokens_details": {"cached_tokens": 200},
+#     "output_tokens_details": {"reasoning_tokens": 0},
+# }
+
+# Streaming functions include usage in the final "answer" event:
+async for event in chat_streamed("Hello", "my_agent", session):
+    if event["event"] == "answer":
+        print(f"Tokens used: {event['data']['usage']['total_tokens']}")
 ```
 
 ## Dynamic Context
