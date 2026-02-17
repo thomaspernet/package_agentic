@@ -9,17 +9,22 @@ Three flavours of chat, from simplest to most granular:
 All three handle session history, error handling, and return structured
 events so your API layer stays thin.
 
+Each function accepts either ``agent_name`` (resolved via the registry)
+or a pre-built ``agent`` instance.  Use the latter when you need
+features that ``create_agent_from_registry`` does not support, such as
+dynamic instructions, structured output, guardrails, or handoffs.
+
 Usage:
     from agents_core.services.chat import chat, chat_with_hooks, chat_streamed
     from agents_core import AgentSession
 
     session = AgentSession(session_id="user-123")
 
-    # Simple
+    # Simple — agent resolved from registry
     result = await chat("Hello!", agent_name="my_agent", session=session)
 
-    # Streaming tokens
-    async for event in chat_streamed("Hello!", "my_agent", session):
+    # Streaming tokens — pre-built agent
+    async for event in chat_streamed("Hello!", agent=my_agent, session=session, context=ctx):
         print(event)
 """
 
@@ -27,7 +32,7 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from agents import Runner, ItemHelpers, Usage
+from agents import Agent, Runner, ItemHelpers, Usage
 from openai.types.responses import ResponseTextDeltaEvent
 
 from ..registry.agent_factory import create_agent_from_registry
@@ -35,6 +40,31 @@ from ..session import AgentSession
 from .hooks import StreamingRunHooks
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_agent(
+    agent: Optional[Agent],
+    agent_name: Optional[str],
+    model_override: Optional[str] = None,
+) -> Agent:
+    """Return a ready-to-run Agent, either pre-built or from the registry.
+
+    Args:
+        agent: Pre-built Agent instance (takes priority).
+        agent_name: Registry name, used when *agent* is ``None``.
+        model_override: Override model (only applies to registry lookup).
+
+    Returns:
+        An ``Agent`` instance.
+
+    Raises:
+        ValueError: If neither *agent* nor *agent_name* is provided.
+    """
+    if agent is not None:
+        return agent
+    if agent_name is not None:
+        return create_agent_from_registry(agent_name, model_override)
+    raise ValueError("Provide either 'agent' (pre-built) or 'agent_name' (registry lookup)")
 
 
 def _usage_to_dict(result: Any) -> Dict[str, Any]:
@@ -66,34 +96,35 @@ def _usage_to_dict(result: Any) -> Dict[str, Any]:
 
 async def chat(
     message: str,
-    agent_name: str,
-    session: AgentSession,
+    agent_name: Optional[str] = None,
+    session: AgentSession = None,
     context: Any = None,
     model_override: Optional[str] = None,
+    agent: Optional[Agent] = None,
 ) -> Dict[str, Any]:
     """Run a single chat turn (non-streaming).
 
     Args:
         message: User message text.
-        agent_name: Name of a registered agent.
+        agent_name: Name of a registered agent (ignored when *agent* is set).
         session: ``AgentSession`` that tracks conversation history.
         context: Optional context object passed to agent instructions and tools
             via ``RunContextWrapper``. Can be any dataclass or object.
         model_override: Use a different model than the agent definition.
+        agent: Pre-built ``Agent`` instance. When provided, *agent_name* and
+            *model_override* are ignored.
 
     Returns:
         ``{"success": True, "response": str, "session_id": str, "tools_called": list, "usage": dict}``
         or ``{"success": False, "error": str, "session_id": str}`` on failure.
-        The ``usage`` dict contains: ``requests``, ``input_tokens``, ``output_tokens``,
-        ``total_tokens``, ``input_tokens_details``, ``output_tokens_details``.
     """
     try:
-        agent = create_agent_from_registry(agent_name, model_override)
+        resolved = _resolve_agent(agent, agent_name, model_override)
 
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
-        run_kwargs: Dict[str, Any] = {"starting_agent": agent, "input": history}
+        run_kwargs: Dict[str, Any] = {"starting_agent": resolved, "input": history}
         if context is not None:
             run_kwargs["context"] = context
 
@@ -116,11 +147,12 @@ async def chat(
 
 async def chat_with_hooks(
     message: str,
-    agent_name: str,
-    session: AgentSession,
+    agent_name: Optional[str] = None,
+    session: AgentSession = None,
     context: Any = None,
     tool_friendly_names: Optional[Dict[str, str]] = None,
     model_override: Optional[str] = None,
+    agent: Optional[Agent] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Chat with real-time tool-call notifications via ``RunHooks``.
 
@@ -130,11 +162,12 @@ async def chat_with_hooks(
 
     Args:
         message: User message text.
-        agent_name: Name of a registered agent.
+        agent_name: Name of a registered agent (ignored when *agent* is set).
         session: ``AgentSession`` for conversation history.
         context: Optional context object passed to agent instructions and tools.
         tool_friendly_names: Optional ``tool_name → display name`` mapping.
         model_override: Use a different model than the agent definition.
+        agent: Pre-built ``Agent`` instance.
 
     Yields:
         Event dicts with an ``"event"`` key and a ``"data"`` dict::
@@ -152,14 +185,14 @@ async def chat_with_hooks(
     try:
         yield {"event": "thinking", "data": {"message": "Analyzing your question..."}}
 
-        agent = create_agent_from_registry(agent_name, model_override)
+        resolved = _resolve_agent(agent, agent_name, model_override)
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
         # Run agent with hooks in the background
         async def _run():
             run_kwargs: Dict[str, Any] = {
-                "starting_agent": agent, "input": history, "hooks": hooks,
+                "starting_agent": resolved, "input": history, "hooks": hooks,
             }
             if context is not None:
                 run_kwargs["context"] = context
@@ -200,10 +233,11 @@ async def chat_with_hooks(
 
 async def chat_streamed(
     message: str,
-    agent_name: str,
-    session: AgentSession,
+    agent_name: Optional[str] = None,
+    session: AgentSession = None,
     context: Any = None,
     model_override: Optional[str] = None,
+    agent: Optional[Agent] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Chat with token-level streaming via ``Runner.run_streamed()``.
 
@@ -213,10 +247,12 @@ async def chat_streamed(
 
     Args:
         message: User message text.
-        agent_name: Name of a registered agent.
+        agent_name: Name of a registered agent (ignored when *agent* is set).
         session: ``AgentSession`` for conversation history.
         context: Optional context object passed to agent instructions and tools.
         model_override: Use a different model than the agent definition.
+        agent: Pre-built ``Agent`` instance. When provided, *agent_name* and
+            *model_override* are ignored.
 
     Yields:
         Event dicts::
@@ -230,11 +266,11 @@ async def chat_streamed(
             {"event": "error",           "data": {"error": "..."}}
     """
     try:
-        agent = create_agent_from_registry(agent_name, model_override)
+        resolved = _resolve_agent(agent, agent_name, model_override)
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
-        run_kwargs: Dict[str, Any] = {"starting_agent": agent, "input": history}
+        run_kwargs: Dict[str, Any] = {"starting_agent": resolved, "input": history}
         if context is not None:
             run_kwargs["context"] = context
 
