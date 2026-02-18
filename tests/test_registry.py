@@ -30,8 +30,19 @@ class TestAgentDefinition:
         a = AgentDefinition(name="a", description="d", instructions="i")
         assert a.guardrails == []
         assert a.handoffs == []
+        assert a.hosted_tools == []
         assert a.output_dataclass is None
         assert a.requires_schema_injection is False
+
+    def test_hosted_tools_default_empty(self):
+        a = AgentDefinition(name="a", description="d", instructions="i")
+        assert a.hosted_tools == []
+
+    def test_hosted_tools_set(self):
+        factory = lambda: "mock_tool"
+        a = AgentDefinition(name="a", description="d", instructions="i", hosted_tools=[factory])
+        assert len(a.hosted_tools) == 1
+        assert a.hosted_tools[0]() == "mock_tool"
 
 
 # -- AgentRegistry -------------------------------------------------------------

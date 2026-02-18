@@ -25,7 +25,7 @@ def orchestrator():
         return AgentOrchestrator()
 
 
-class TestOrchestratorExecute:
+class TestOrchestratorRunWorkflow:
     async def test_success(self, orchestrator):
         usage = {
             "requests": 1,
@@ -39,7 +39,7 @@ class TestOrchestratorExecute:
         with patch.object(orchestrator, "run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = {"output": "orchestrated answer", "usage": usage}
 
-            result = await orchestrator.execute(
+            result = await orchestrator.run_workflow(
                 user_query="test query",
                 context_data={"database_connector": Mock()},
                 session_id="orch-session",
@@ -54,7 +54,7 @@ class TestOrchestratorExecute:
         with patch.object(orchestrator, "run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = RuntimeError("Agent exploded")
 
-            result = await orchestrator.execute(
+            result = await orchestrator.run_workflow(
                 user_query="bad query",
                 context_data={"database_connector": Mock()},
             )

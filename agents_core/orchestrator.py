@@ -26,17 +26,17 @@ class AgentOrchestrator(BaseAgentRunner):
     
     Usage:
         orchestrator = AgentOrchestrator()
-        result = await orchestrator.execute(
+        result = await orchestrator.run_workflow(
             user_query="Analyze sales data",
             context_data={"database_connector": db}
         )
     """
-    
+
     def __init__(self):
         # Initialize base class (loads registries and builds mappings)
         super().__init__()
-    
-    async def execute(
+
+    async def run_workflow(
         self,
         user_query: str,
         context_data: Dict[str, Any],
@@ -45,14 +45,14 @@ class AgentOrchestrator(BaseAgentRunner):
         event_callback: Optional[callable] = None,
     ) -> Dict[str, Any]:
         """Run the orchestrator workflow.
-        
+
         Args:
             user_query: User's input query
             context_data: Initial context data (database connector, filters, etc.)
             session_id: Optional session ID for conversation continuity
             initial_history: Optional conversation history
             event_callback: Optional callback for streaming events
-            
+
         Returns:
             Dict with workflow results
         """

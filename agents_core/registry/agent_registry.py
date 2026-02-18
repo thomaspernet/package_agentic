@@ -15,6 +15,7 @@ class AgentDefinition:
     tools: List[str] = field(default_factory=list)         # Tool names from registry
     guardrails: List[str] = field(default_factory=list)    # Guardrail names
     handoffs: List[str] = field(default_factory=list)
+    hosted_tools: List[Any] = field(default_factory=list)  # OpenAI SDK hosted tools (WebSearchTool, etc.)
     output_dataclass: Optional[Any] = None  # Dataclass type for structured output
     model_settings_fn: Optional[Callable] = None  # Dynamic model settings function
     

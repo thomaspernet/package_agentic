@@ -37,6 +37,7 @@ Quick Start:
     )
 """
 
+from .core import BaseAgentRunner
 from .session import AgentSession, ConversationHistory, SQLiteSessionStore
 from .models.context import AgentContext
 from .models.outputs import ToolOutput, ChatResponse
@@ -61,6 +62,8 @@ from .services import (
 from .orchestrator import AgentOrchestrator
 
 __all__ = [
+    # Core
+    "BaseAgentRunner",
     # Session
     "AgentSession",
     "ConversationHistory",
