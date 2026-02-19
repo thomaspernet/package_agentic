@@ -8,7 +8,6 @@ Also retains run_agent() for backward compatibility.
 
 import json
 import logging
-import os
 from typing import Optional, Dict, Any, List, Callable
 
 from agents import Agent, Runner, RunContextWrapper, ItemHelpers, Usage
@@ -258,8 +257,10 @@ class BaseAgentRunner:
             prompt = builder(instructions, collecting.raw_items, agent_def)
 
             from openai import AsyncOpenAI
+            from agents.models._openai_shared import get_default_openai_key
 
-            client = AsyncOpenAI()
+            api_key = get_default_openai_key()
+            client = AsyncOpenAI(api_key=api_key)
 
             output_type = self._resolve_output_type(agent_def.output_dataclass)
             use_json = output_type and output_type != str
