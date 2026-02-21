@@ -11,7 +11,7 @@ import logging
 from typing import Optional, Dict, Any, List, Callable
 
 from agents import Agent, Runner, RunContextWrapper, ItemHelpers, Usage
-from openai.types.responses import ResponseTextDeltaEvent
+from openai.types.responses import ResponseCompletedEvent, ResponseTextDeltaEvent
 
 from ..session import AgentSession
 from ..models.context import AgentContext
@@ -318,12 +318,17 @@ class BaseAgentRunner:
 
         tools_called: List[str] = []
 
+        stream_usage = Usage()
+
         async for event in result.stream_events():
-            if event.type == "raw_response_event" and isinstance(
-                event.data, ResponseTextDeltaEvent
-            ):
-                if on_event and event.data.delta:
-                    on_event({"event": "text_delta", "data": {"delta": event.data.delta}})
+            if event.type == "raw_response_event":
+                if isinstance(event.data, ResponseTextDeltaEvent):
+                    if on_event and event.data.delta:
+                        on_event({"event": "text_delta", "data": {"delta": event.data.delta}})
+                elif isinstance(event.data, ResponseCompletedEvent):
+                    resp_usage = getattr(event.data.response, "usage", None)
+                    if resp_usage:
+                        stream_usage.add(resp_usage)
 
             elif event.type == "run_item_stream_event":
                 item = event.item
@@ -366,7 +371,7 @@ class BaseAgentRunner:
         response = result.final_output
         await session.add_items([{"role": "assistant", "content": response}])
 
-        usage = self._aggregate_usage(result)
+        usage = self._build_usage_dict(stream_usage)
 
         if on_event:
             on_event({
@@ -382,18 +387,8 @@ class BaseAgentRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _aggregate_usage(result: Any) -> Dict[str, Any]:
-        """Aggregate token usage from all LLM responses in a run result.
-
-        Args:
-            result: A RunResult with raw_responses.
-
-        Returns:
-            Dict with token counts.
-        """
-        usage = Usage()
-        for response in result.raw_responses:
-            usage.add(response.usage)
+    def _build_usage_dict(usage: Usage) -> Dict[str, Any]:
+        """Convert a Usage object to a plain dict."""
         return {
             "requests": usage.requests,
             "input_tokens": usage.input_tokens,
@@ -406,6 +401,14 @@ class BaseAgentRunner:
                 "reasoning_tokens": usage.output_tokens_details.reasoning_tokens,
             },
         }
+
+    @staticmethod
+    def _aggregate_usage(result: Any) -> Dict[str, Any]:
+        """Aggregate token usage from a non-streaming RunResult."""
+        usage = Usage()
+        for response in result.raw_responses:
+            usage.add(response.usage)
+        return BaseAgentRunner._build_usage_dict(usage)
 
     async def run_agent(
         self,
