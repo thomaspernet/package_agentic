@@ -327,7 +327,12 @@ class BaseAgentRunner:
             elif event.type == "run_item_stream_event":
                 item = event.item
                 if item.type == "tool_call_item":
-                    name = getattr(item, "name", "unknown")
+                    raw = getattr(item, "raw_item", None)
+                    name = (
+                        getattr(item, "name", None)
+                        or getattr(raw, "name", None)
+                        or "unknown"
+                    )
                     tools_called.append(name)
                     if on_event:
                         on_event({
