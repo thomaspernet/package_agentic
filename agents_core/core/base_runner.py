@@ -312,6 +312,7 @@ class BaseAgentRunner:
             "starting_agent": agent,
             "input": history,
             "context": context,
+            "max_turns": max_turns,
         }
         result = Runner.run_streamed(**run_kwargs)
 

@@ -405,6 +405,31 @@ class TestExecuteStreaming:
             m.assert_called_once()
             assert result == "streamed"
 
+    async def test_max_turns_passed_to_run_streamed(self, runner):
+        ctx = AgentContext(database_connector=Mock())
+        session = AgentSession(session_id="test")
+
+        mock_result = Mock()
+        mock_result.final_output = "ok"
+        mock_result.raw_responses = []
+
+        async def mock_stream_events():
+            return
+            yield
+
+        mock_result.stream_events = mock_stream_events
+
+        with (
+            patch.object(runner, "create_agent", new_callable=AsyncMock, return_value=Mock()),
+            patch("agents_core.core.base_runner.Runner") as mock_runner_cls,
+        ):
+            mock_runner_cls.run_streamed = Mock(return_value=mock_result)
+            await runner._execute_streamed(
+                "basic_agent", ctx, session, lambda e: None, 30, "hello"
+            )
+            call_kwargs = mock_runner_cls.run_streamed.call_args.kwargs
+            assert call_kwargs["max_turns"] == 30
+
     async def test_on_event_receives_answer(self, runner):
         ctx = AgentContext(database_connector=Mock())
         session = AgentSession(session_id="test")
