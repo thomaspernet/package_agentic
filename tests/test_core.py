@@ -413,6 +413,7 @@ class TestExecuteStreaming:
         # Build a mock streamed result
         mock_result = Mock()
         mock_result.final_output = "Streamed answer"
+        mock_result.raw_responses = []
 
         async def mock_stream_events():
             return
@@ -434,6 +435,7 @@ class TestExecuteStreaming:
         answer_events = [e for e in events if e["event"] == "answer"]
         assert len(answer_events) == 1
         assert answer_events[0]["data"]["response"] == "Streamed answer"
+        assert "usage" in answer_events[0]["data"]
 
 
 # ------------------------------------------------------------------ #

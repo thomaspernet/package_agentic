@@ -365,10 +365,12 @@ class BaseAgentRunner:
         response = result.final_output
         await session.add_items([{"role": "assistant", "content": response}])
 
+        usage = self._aggregate_usage(result)
+
         if on_event:
             on_event({
                 "event": "answer",
-                "data": {"response": response, "tools_called": tools_called},
+                "data": {"response": response, "tools_called": tools_called, "usage": usage},
             })
 
         logger.info(f"Agent '{agent_name}' (streamed) completed, {len(tools_called)} tool calls")
