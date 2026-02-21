@@ -318,7 +318,9 @@ class BaseAgentRunner:
 
         tools_called: List[str] = []
 
-        stream_usage = Usage()
+        total_input_tokens = 0
+        total_output_tokens = 0
+        request_count = 0
 
         async for event in result.stream_events():
             if event.type == "raw_response_event":
@@ -328,7 +330,9 @@ class BaseAgentRunner:
                 elif isinstance(event.data, ResponseCompletedEvent):
                     resp_usage = getattr(event.data.response, "usage", None)
                     if resp_usage:
-                        stream_usage.add(resp_usage)
+                        total_input_tokens += resp_usage.input_tokens or 0
+                        total_output_tokens += resp_usage.output_tokens or 0
+                        request_count += 1
 
             elif event.type == "run_item_stream_event":
                 item = event.item
@@ -371,6 +375,12 @@ class BaseAgentRunner:
         response = result.final_output
         await session.add_items([{"role": "assistant", "content": response}])
 
+        stream_usage = Usage(
+            requests=request_count,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            total_tokens=total_input_tokens + total_output_tokens,
+        )
         usage = self._build_usage_dict(stream_usage)
 
         if on_event:
