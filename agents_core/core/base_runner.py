@@ -320,6 +320,7 @@ class BaseAgentRunner:
 
         total_input_tokens = 0
         total_output_tokens = 0
+        last_input_tokens = 0
         request_count = 0
 
         async for event in result.stream_events():
@@ -332,6 +333,7 @@ class BaseAgentRunner:
                     if resp_usage:
                         total_input_tokens += resp_usage.input_tokens or 0
                         total_output_tokens += resp_usage.output_tokens or 0
+                        last_input_tokens = resp_usage.input_tokens or 0
                         request_count += 1
 
             elif event.type == "run_item_stream_event":
@@ -382,6 +384,8 @@ class BaseAgentRunner:
             total_tokens=total_input_tokens + total_output_tokens,
         )
         usage = self._build_usage_dict(stream_usage)
+        # Last response's input_tokens = actual context window usage (not sum)
+        usage["last_input_tokens"] = last_input_tokens
 
         if on_event:
             on_event({
