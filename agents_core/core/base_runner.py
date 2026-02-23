@@ -265,6 +265,9 @@ class BaseAgentRunner:
             output_type = self._resolve_output_type(agent_def.output_dataclass)
             use_json = output_type and output_type != str
 
+            if use_json:
+                prompt += "\n\nReturn your response as JSON."
+
             kwargs: Dict[str, Any] = {
                 "model": agent_def.model or "gpt-4o-mini",
                 "messages": [{"role": "user", "content": prompt}],
