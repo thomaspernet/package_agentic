@@ -14,6 +14,7 @@ A framework for building AI agents using the OpenAI Agents SDK. Fork this reposi
 - **Dynamic Context** - Pass runtime data to instructions and tools
 - **InstructionBuilder** - Base class for section-based instruction assembly (persona, context, steps, rules, output)
 - **Output Models** - `ToolOutput` and `ChatResponse` dataclasses
+- **Agent Catalog** - Load agent definitions (model, description, tools) from a YAML file
 
 ## Installation
 
@@ -167,6 +168,52 @@ register_agent(AgentDefinition(
 
 For agents with fundamentally different instruction paths (e.g., surface vs deep extraction), use a shared private base with concrete subclasses and a dispatcher function — see `agents_core/instructions/builder.py` docstring for details.
 
+## Agent Catalog (YAML-driven agent config)
+
+Keep static agent config (model, description, tools) in a YAML file instead of scattered across Python files. Dynamic parts (instructions, output_dataclass, hosted_tools) stay in Python.
+
+```yaml
+# agents.yaml
+agents:
+  weather_assistant:
+    model: gpt-4o-mini
+    description: Helps with weather queries
+    tools:
+      - get_weather
+      - get_forecast
+
+  research_agent:
+    model: gpt-4o
+    description: Deep research agent
+    tools:
+      - search
+      - read
+      - think
+```
+
+```python
+from agents_core import load_agent_catalog, AgentDefinition, register_agent
+
+catalog = load_agent_catalog("agents.yaml")
+
+# Use catalog entries to build AgentDefinitions
+cfg = catalog.get("weather_assistant")
+# cfg.model -> "gpt-4o-mini"
+# cfg.description -> "Helps with weather queries"
+# cfg.tools -> ["get_weather", "get_forecast"]
+
+register_agent(AgentDefinition(
+    name="weather_assistant",
+    model=cfg.model,
+    description=cfg.description,
+    tools=cfg.tools,
+    instructions=build_weather_instructions,  # dynamic — stays in Python
+))
+
+# List all agents in the catalog
+catalog.list_agents()  # ["weather_assistant", "research_agent"]
+```
+
 ## Session Persistence
 
 ```python
@@ -200,13 +247,14 @@ response.to_dict()  # {"success": True, "response": "...", ...}
 
 ## Project Structure
 
-```
+```text
 agents_core/
 ├── __init__.py              # Main exports
 ├── orchestrator.py          # Multi-agent orchestration
 ├── instructions/
 │   └── builder.py           # InstructionBuilder base class
 ├── registry/
+│   ├── agent_catalog.py     # YAML-driven agent catalog (load_agent_catalog)
 │   ├── agent_registry.py    # AgentDefinition + registry
 │   ├── agent_factory.py     # create_agent_from_registry()
 │   ├── tool_registry.py     # ToolDefinition + registry

@@ -43,6 +43,9 @@ from .session import AgentSession, ConversationHistory, SQLiteSessionStore
 from .models.context import AgentContext
 from .models.outputs import ToolOutput, ChatResponse
 from .registry import (
+    AgentCatalog,
+    AgentYamlEntry,
+    load_agent_catalog,
     AgentDefinition,
     AgentRegistry,
     get_agent_registry,
@@ -77,6 +80,9 @@ __all__ = [
     "ToolOutput",
     "ChatResponse",
     # Registry
+    "AgentCatalog",
+    "AgentYamlEntry",
+    "load_agent_catalog",
     "AgentDefinition",
     "AgentRegistry",
     "get_agent_registry",
