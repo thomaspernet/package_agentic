@@ -172,6 +172,8 @@ For agents with fundamentally different instruction paths (e.g., surface vs deep
 
 Keep static agent config (model, description, tools) in a YAML file instead of scattered across Python files. Dynamic parts (instructions, output_dataclass, hosted_tools) stay in Python.
 
+### Basic usage
+
 ```yaml
 # agents.yaml
 agents:
@@ -181,25 +183,14 @@ agents:
     tools:
       - get_weather
       - get_forecast
-
-  research_agent:
-    model: gpt-4o
-    description: Deep research agent
-    tools:
-      - search
-      - read
-      - think
 ```
 
 ```python
 from agents_core import load_agent_catalog, AgentDefinition, register_agent
 
 catalog = load_agent_catalog("agents.yaml")
-
-# Use catalog entries to build AgentDefinitions
 cfg = catalog.get("weather_assistant")
 # cfg.model -> "gpt-4o-mini"
-# cfg.description -> "Helps with weather queries"
 # cfg.tools -> ["get_weather", "get_forecast"]
 
 register_agent(AgentDefinition(
@@ -209,10 +200,89 @@ register_agent(AgentDefinition(
     tools=cfg.tools,
     instructions=build_weather_instructions,  # dynamic — stays in Python
 ))
-
-# List all agents in the catalog
-catalog.list_agents()  # ["weather_assistant", "research_agent"]
 ```
+
+### Tool groups
+
+Define reusable tool sets once, reference them with `group:`.
+
+```yaml
+tool_groups:
+  graph_navigation:
+    - discover
+    - search
+    - explore
+    - read
+  project_knowledge:
+    - get_rules
+    - get_skills
+
+agents:
+  research_agent:
+    model: gpt-4o
+    description: Deep research agent
+    tools:
+      - think
+      - group: graph_navigation      # expands to 4 tools
+      - group: project_knowledge     # expands to 2 tools
+```
+
+### Conditional tools
+
+Include a tool only when a config flag is truthy. Pass your config object to `catalog.get()` -- the `when:` path is resolved via `getattr()`.
+
+```yaml
+agents:
+  chatbot:
+    model: gpt-4o
+    description: Main assistant
+    tools:
+      - think
+      - search
+      - tool: web_search
+        when: features.web_search_enabled   # dot-path into your config
+```
+
+```python
+cfg = catalog.get("chatbot", config=my_config)
+# If my_config.features.web_search_enabled is True:
+#   cfg.tools -> ["think", "search", "web_search"]
+# If False or missing:
+#   cfg.tools -> ["think", "search"]
+```
+
+### Agent-level conditions
+
+Control entire agent registration with a `when:` clause. Use `catalog.is_enabled()` to check.
+
+```yaml
+agents:
+  web_search_agent:
+    model: gpt-4o-mini
+    when: features.web_search_enabled
+    description: Search the internet
+    tools: []
+```
+
+```python
+if catalog.is_enabled("web_search_agent", config=my_config):
+    cfg = catalog.get("web_search_agent", config=my_config)
+    register_agent(AgentDefinition(
+        name="web_search_agent",
+        model=cfg.model,
+        description=cfg.description,
+        tools=cfg.tools,
+        hosted_tools=[get_web_search_tool],  # SDK-specific — stays in Python
+    ))
+```
+
+### API reference
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `catalog.get(name, config=None)` | `AgentYamlEntry` | Resolved entry (groups expanded, conditions evaluated) |
+| `catalog.is_enabled(name, config=None)` | `bool` | Check agent-level `when` condition |
+| `catalog.list_agents()` | `list[str]` | All agent names in the catalog |
 
 ## Session Persistence
 
