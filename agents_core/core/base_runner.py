@@ -17,6 +17,7 @@ from ..session import AgentSession
 from ..models.context import AgentContext
 from ..models import outputs as output_models
 from ..registry import get_agent_registry, get_tool_registry, get_guardrail_registry
+from .errors import structured_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -538,11 +539,15 @@ class BaseAgentRunner:
                     agent_name=tool_name,
                     context=context,
                 )
-                agent_description = self.agent_registry._agents[tool_name].description
-                agent_tools.append(tool_agent.as_tool(
-                    tool_name=tool_name,
-                    tool_description=agent_description,
-                ))
+                agent_def = self.agent_registry._agents[tool_name]
+                as_tool_kwargs: Dict[str, Any] = {
+                    "tool_name": tool_name,
+                    "tool_description": agent_def.description,
+                    "failure_error_function": structured_tool_error,
+                }
+                if agent_def.as_tool_parameters is not None:
+                    as_tool_kwargs["parameters"] = agent_def.as_tool_parameters
+                agent_tools.append(tool_agent.as_tool(**as_tool_kwargs))
             else:
                 logger.warning(f"Tool '{tool_name}' not found in tool or agent registry")
 

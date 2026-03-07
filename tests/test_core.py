@@ -774,3 +774,93 @@ class TestPrivateHelpers:
         )
         assert kwargs["handoffs"] == ["handoff1"]
         assert kwargs["model_settings"] == {"temperature": 0.5}
+
+
+# ------------------------------------------------------------------ #
+# Structured agent-as-tool
+# ------------------------------------------------------------------ #
+
+
+class TestStructuredAgentAsTool:
+    async def test_build_tools_with_parameters(self, runner):
+        """Agent-as-tool with as_tool_parameters passes parameters to as_tool()."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class ActionInput:
+            action: str
+            target_uuid: str
+
+        runner.agent_registry.register(
+            AgentDefinition(
+                name="param_sub_agent",
+                description="sub with params",
+                instructions="sub",
+                as_tool_parameters=ActionInput,
+            )
+        )
+        ctx = AgentContext(database_connector=Mock())
+        tools = await runner._build_tools(["param_sub_agent"], ctx)
+        assert len(tools) == 1
+        assert tools[0].name == "param_sub_agent"
+
+    async def test_build_tools_without_parameters(self, runner):
+        """Agent-as-tool without as_tool_parameters uses default input."""
+        runner.agent_registry.register(
+            AgentDefinition(
+                name="plain_sub_agent",
+                description="sub without params",
+                instructions="sub",
+            )
+        )
+        ctx = AgentContext(database_connector=Mock())
+        tools = await runner._build_tools(["plain_sub_agent"], ctx)
+        assert len(tools) == 1
+        assert tools[0].name == "plain_sub_agent"
+
+    async def test_agent_def_as_tool_parameters_default_none(self):
+        """AgentDefinition.as_tool_parameters defaults to None."""
+        agent_def = AgentDefinition(
+            name="test", description="test", instructions="test"
+        )
+        assert agent_def.as_tool_parameters is None
+
+
+# ------------------------------------------------------------------ #
+# Structured error function
+# ------------------------------------------------------------------ #
+
+
+class TestStructuredToolError:
+    def test_returns_json(self):
+        from agents_core.core.errors import structured_tool_error
+        result = structured_tool_error(None, ValueError("page_uuid is required"))
+        data = json.loads(result)
+        assert data["status"] == "error"
+        assert data["error_type"] == "ValueError"
+        assert "page_uuid is required" in data["message"]
+        assert "retry_hint" in data
+
+    def test_max_turns_hint(self):
+        from agents_core.core.errors import structured_tool_error
+        result = structured_tool_error(None, RuntimeError("Max turns exceeded"))
+        data = json.loads(result)
+        assert "simplify" in data["retry_hint"].lower() or "turns" in data["retry_hint"].lower()
+
+    def test_not_found_hint(self):
+        from agents_core.core.errors import structured_tool_error
+        result = structured_tool_error(None, ValueError("Page not found: abc-123"))
+        data = json.loads(result)
+        assert "uuid" in data["retry_hint"].lower()
+
+    def test_required_hint(self):
+        from agents_core.core.errors import structured_tool_error
+        result = structured_tool_error(None, ValueError("content is required"))
+        data = json.loads(result)
+        assert "required" in data["retry_hint"].lower()
+
+    def test_generic_hint(self):
+        from agents_core.core.errors import structured_tool_error
+        result = structured_tool_error(None, RuntimeError("something weird"))
+        data = json.loads(result)
+        assert "retry" in data["retry_hint"].lower()

@@ -5,5 +5,6 @@ This module contains fundamental components for agent execution:
 """
 
 from .base_runner import BaseAgentRunner
+from .errors import structured_tool_error
 
-__all__ = ["BaseAgentRunner"]
+__all__ = ["BaseAgentRunner", "structured_tool_error"]
