@@ -4,13 +4,13 @@ This tool is automatically injected into agents that use a TurnBudget.
 The agent calls it when running low on turns and needs more time.
 """
 
-from agents import function_tool
+from agents import RunContextWrapper, function_tool
 
 from ..utils.tool_helpers import unwrap_context, tool_response, tool_error
 
 
 @function_tool(name_override="request_extension")
-async def request_extension_tool(ctx, reason: str) -> str:
+async def request_extension_tool(ctx: RunContextWrapper, reason: str) -> str:
     """Request additional turns when the current budget is insufficient.
 
     Call this when you need more turns to complete the task. You must provide
