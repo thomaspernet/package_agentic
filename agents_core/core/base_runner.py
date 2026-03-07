@@ -52,8 +52,8 @@ class BaseAgentRunner:
             for name, guardrail_def in self.guardrail_registry._guardrails.items()
         }
 
-        logger.info(f"Loaded {len(self.tool_map)} tools: {list(self.tool_map.keys())}")
-        logger.info(f"Loaded {len(self.guardrail_map)} guardrails: {list(self.guardrail_map.keys())}")
+        logger.debug(f"Loaded {len(self.tool_map)} tools: {list(self.tool_map.keys())}")
+        logger.debug(f"Loaded {len(self.guardrail_map)} guardrails: {list(self.guardrail_map.keys())}")
 
     def setup_context(self, **context_data) -> AgentContext:
         """Setup context with provided data.
