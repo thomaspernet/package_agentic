@@ -15,6 +15,7 @@ A framework for building AI agents using the OpenAI Agents SDK. Fork this reposi
 - **InstructionBuilder** - Base class for section-based instruction assembly (persona, context, steps, rules, output)
 - **Output Models** - `ToolOutput` and `ChatResponse` dataclasses
 - **Agent Catalog** - Load agent definitions (model, description, tools) from a YAML file
+- **Knowledge Store** - Inject domain knowledge from YAML files into agent system prompts
 
 ## Installation
 
@@ -164,7 +165,7 @@ register_agent(AgentDefinition(
 ))
 ```
 
-`build()` assembles sections in order (persona → context → steps → rules → output), skips any that return `None`, and joins with double newlines. Override `sections()` to reorder, or `extra_sections()` to append additional `(header, body)` blocks.
+`build()` assembles sections in order (persona → domain_knowledge → context → steps → rules → output), skips any that return `None`, and joins with double newlines. Override `sections()` to reorder, or `extra_sections()` to append additional `(header, body)` blocks.
 
 For agents with fundamentally different instruction paths (e.g., surface vs deep extraction), use a shared private base with concrete subclasses and a dispatcher function — see `agents_core/instructions/builder.py` docstring for details.
 
@@ -283,6 +284,78 @@ if catalog.is_enabled("web_search_agent", config=my_config):
 | `catalog.get(name, config=None)` | `AgentYamlEntry` | Resolved entry (groups expanded, conditions evaluated) |
 | `catalog.is_enabled(name, config=None)` | `bool` | Check agent-level `when` condition |
 | `catalog.list_agents()` | `list[str]` | All agent names in the catalog |
+
+## Knowledge Store
+
+Inject domain knowledge into agent system prompts from separate YAML files. Knowledge teaches agents "what things are" (domain model), while tool descriptions handle routing. Inspired by the CLAUDE.md pattern — static context that shapes agent behavior.
+
+### Setup
+
+Create a `knowledge/` directory with one YAML file per scope:
+
+```yaml
+# knowledge/global.yaml
+content: |
+  The workspace is a tree of items. Pages are containers that can nest
+  other pages or hold documents. Documents are imported content.
+
+# knowledge/extraction.yaml
+content: |
+  Named entities are shared and deduplicated across documents.
+  Insights are per-document observations with supporting evidence.
+```
+
+Reference scopes in your `agents.yaml`:
+
+```yaml
+agents:
+  extraction_agent:
+    model: gpt-4o
+    description: Extracts structured data
+    knowledge:
+      - global        # -> knowledge/global.yaml
+      - extraction    # -> knowledge/extraction.yaml
+    tools:
+      - extract_entities
+```
+
+### Loading
+
+Pass `knowledge_dir` to `load_agent_catalog()`:
+
+```python
+from agents_core import load_agent_catalog
+
+catalog = load_agent_catalog("agents.yaml", knowledge_dir="knowledge/")
+cfg = catalog.get("extraction_agent")
+cfg.knowledge_text  # global + extraction content, concatenated with \n\n
+```
+
+Then wire it into your `AgentDefinition`:
+
+```python
+register_agent(AgentDefinition(
+    name="extraction_agent",
+    model=cfg.model,
+    description=cfg.description,
+    tools=cfg.tools,
+    knowledge_text=cfg.knowledge_text,  # injected into system prompt
+    instructions=build_extraction_instructions,
+))
+```
+
+### How it reaches the system prompt
+
+`InstructionBuilder.domain_knowledge()` reads `agent_def.knowledge_text` and places it between persona and context sections. The section order is:
+
+1. **persona** — identity statement
+2. **domain_knowledge** — static domain knowledge from YAML files
+3. **context_section** — runtime environment info
+4. **steps** — task instructions
+5. **rules** — constraints
+6. **output_format** — expected output structure
+
+Override `domain_knowledge()` in your builder subclass for custom behavior.
 
 ## Session Persistence
 

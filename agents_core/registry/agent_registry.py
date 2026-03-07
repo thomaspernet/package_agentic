@@ -21,6 +21,7 @@ class AgentDefinition:
     
     model: str = "gpt-4o-mini"
     requires_schema_injection: bool = False  # If True, inject {schema} dynamically
+    knowledge_text: str = ""  # Domain knowledge from catalog (injected via domain_knowledge())
     
     def __post_init__(self):
         """Ensure either instructions_template or instructions is provided."""

@@ -37,6 +37,9 @@ class TestBuild:
             def persona(self):
                 return "Persona."
 
+            def domain_knowledge(self):
+                return "Knowledge."
+
             def context_section(self):
                 return "Context."
 
@@ -50,7 +53,18 @@ class TestBuild:
                 return "Output."
 
         result = AllSections(None, None).build()
-        assert result == "Persona.\n\nContext.\n\nSteps.\n\nRules.\n\nOutput."
+        assert result == "Persona.\n\nKnowledge.\n\nContext.\n\nSteps.\n\nRules.\n\nOutput."
+
+    def test_domain_knowledge_none_skipped(self):
+        class NoKnowledge(InstructionBuilder):
+            def persona(self):
+                return "Persona."
+
+            def context_section(self):
+                return "Context."
+
+        result = NoKnowledge(None, None).build()
+        assert result == "Persona.\n\nContext."
 
     def test_extra_sections_appended(self):
         class WithExtras(InstructionBuilder):

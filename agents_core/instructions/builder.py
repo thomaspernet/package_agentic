@@ -1,9 +1,9 @@
 """Base class for agent instruction builders.
 
 All agent instructions follow a consistent section pattern:
-persona, context, steps, rules, output format. Subclasses override
-the section methods they need; unused sections return None and are
-skipped during assembly.
+persona, domain_knowledge, context, steps, rules, output format.
+Subclasses override the section methods they need; unused sections
+return None and are skipped during assembly.
 
 Usage:
     class MyBuilder(InstructionBuilder):
@@ -20,7 +20,7 @@ Usage:
     )
 
 Why use InstructionBuilder:
-    - Consistent section ordering across all agents (persona -> context -> steps -> rules -> output)
+    - Consistent section ordering across all agents (persona -> domain_knowledge -> context -> steps -> rules -> output)
     - Sections returning None are silently skipped — no empty headers
     - Shared formatting utilities (format_steps, format_rules, format_persona)
     - Safe context access via _ctx_attr() with automatic RunContextWrapper unwrapping
@@ -50,6 +50,16 @@ class InstructionBuilder:
     def persona(self) -> str | None:
         """Opening identity statement. E.g., 'You are a ...'."""
         return None
+
+    def domain_knowledge(self) -> str | None:
+        """Static domain knowledge injected after persona.
+
+        By default, returns ``agent_def.knowledge_text`` if the agent
+        definition has that attribute (set from AgentYamlEntry via
+        AgentDefinition). Override for custom behavior.
+        """
+        text = getattr(self.agent_def, "knowledge_text", None)
+        return text if text else None
 
     def context_section(self) -> str | None:
         """Environment info: filters, configs, strategy, hints."""
@@ -85,7 +95,7 @@ class InstructionBuilder:
         Override to reorder, add, or remove sections.
         Extra sections from extra_sections() are always appended after these.
         """
-        return ["persona", "context_section", "steps", "rules", "output_format"]
+        return ["persona", "domain_knowledge", "context_section", "steps", "rules", "output_format"]
 
     # ------------------------------------------------------------------ #
     # Assembly

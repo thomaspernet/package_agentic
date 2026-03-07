@@ -1,4 +1,4 @@
-"""Tests for AgentCatalog — tool groups, conditional tools, agent-level conditions."""
+"""Tests for AgentCatalog — tool groups, conditional tools, agent-level conditions, knowledge."""
 
 import textwrap
 from pathlib import Path
@@ -10,7 +10,9 @@ from agents_core.registry.agent_catalog import (
     AgentCatalog,
     AgentYamlEntry,
     _check_condition,
+    _load_knowledge_dir,
     _resolve_dot_path,
+    _resolve_knowledge,
     _resolve_tools,
     load_agent_catalog,
 )
@@ -287,7 +289,203 @@ class TestAgentYamlEntry:
     def test_defaults(self):
         entry = AgentYamlEntry(model="fast", description="test")
         assert entry.tools == []
+        assert entry.knowledge_text == ""
 
     def test_with_tools(self):
         entry = AgentYamlEntry(model="fast", description="test", tools=["a", "b"])
         assert entry.tools == ["a", "b"]
+
+    def test_with_knowledge(self):
+        entry = AgentYamlEntry(
+            model="fast", description="test", knowledge_text="Domain knowledge."
+        )
+        assert entry.knowledge_text == "Domain knowledge."
+
+
+# ---------------------------------------------------------------------------
+# _resolve_knowledge
+# ---------------------------------------------------------------------------
+
+
+class TestResolveKnowledge:
+    def test_empty_scopes(self):
+        assert _resolve_knowledge([], {"global": "content"}) == ""
+
+    def test_single_scope(self):
+        knowledge = {"global": "Global knowledge."}
+        assert _resolve_knowledge(["global"], knowledge) == "Global knowledge."
+
+    def test_multiple_scopes_concatenated(self):
+        knowledge = {"global": "Global.", "chatbot": "Chatbot."}
+        result = _resolve_knowledge(["global", "chatbot"], knowledge)
+        assert result == "Global.\n\nChatbot."
+
+    def test_missing_scope_skipped(self):
+        knowledge = {"global": "Global."}
+        result = _resolve_knowledge(["global", "missing"], knowledge)
+        assert result == "Global."
+
+    def test_all_scopes_missing(self):
+        assert _resolve_knowledge(["missing"], {}) == ""
+
+    def test_whitespace_stripped(self):
+        knowledge = {"global": "  Global.  \n"}
+        assert _resolve_knowledge(["global"], knowledge) == "Global."
+
+
+# ---------------------------------------------------------------------------
+# _load_knowledge_dir
+# ---------------------------------------------------------------------------
+
+
+class TestLoadKnowledgeDir:
+    def test_loads_yaml_files(self, tmp_path):
+        (tmp_path / "global.yaml").write_text("content: |\n  Global knowledge.\n")
+        (tmp_path / "chatbot.yaml").write_text("content: |\n  Chatbot knowledge.\n")
+
+        result = _load_knowledge_dir(tmp_path)
+        assert "global" in result
+        assert "chatbot" in result
+        assert "Global knowledge." in result["global"]
+        assert "Chatbot knowledge." in result["chatbot"]
+
+    def test_ignores_non_yaml_files(self, tmp_path):
+        (tmp_path / "global.yaml").write_text("content: |\n  Global.\n")
+        (tmp_path / "notes.md").write_text("Not a knowledge file.")
+
+        result = _load_knowledge_dir(tmp_path)
+        assert "global" in result
+        assert "notes" not in result
+
+    def test_skips_empty_content(self, tmp_path):
+        (tmp_path / "empty.yaml").write_text("content: ''")
+
+        result = _load_knowledge_dir(tmp_path)
+        assert "empty" not in result
+
+    def test_nonexistent_dir(self, tmp_path):
+        result = _load_knowledge_dir(tmp_path / "nonexistent")
+        assert result == {}
+
+    def test_empty_dir(self, tmp_path):
+        result = _load_knowledge_dir(tmp_path)
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# AgentCatalog with knowledge
+# ---------------------------------------------------------------------------
+
+
+class TestAgentCatalogKnowledge:
+    def test_get_resolves_knowledge(self):
+        catalog = AgentCatalog(
+            tool_groups={},
+            raw_agents={
+                "chatbot": {
+                    "model": "reasoning",
+                    "description": "Main",
+                    "tools": [],
+                    "knowledge": ["global", "chatbot"],
+                },
+            },
+            knowledge={"global": "Graph model.", "chatbot": "Tool workflows."},
+        )
+        entry = catalog.get("chatbot")
+        assert entry.knowledge_text == "Graph model.\n\nTool workflows."
+
+    def test_no_knowledge_key_returns_empty(self):
+        catalog = AgentCatalog(
+            tool_groups={},
+            raw_agents={
+                "simple": {"model": "fast", "description": "No knowledge", "tools": []},
+            },
+            knowledge={"global": "Something."},
+        )
+        entry = catalog.get("simple")
+        assert entry.knowledge_text == ""
+
+    def test_no_knowledge_loaded_returns_empty(self):
+        catalog = AgentCatalog(
+            tool_groups={},
+            raw_agents={
+                "chatbot": {
+                    "model": "fast",
+                    "description": "Test",
+                    "tools": [],
+                    "knowledge": ["global"],
+                },
+            },
+        )
+        entry = catalog.get("chatbot")
+        assert entry.knowledge_text == ""
+
+
+# ---------------------------------------------------------------------------
+# load_agent_catalog with knowledge_dir
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentCatalogWithKnowledge:
+    def test_load_with_knowledge_dir(self, tmp_path):
+        yaml_content = textwrap.dedent("""\
+            agents:
+              chatbot:
+                model: reasoning
+                description: Main agent
+                tools: []
+                knowledge: [global, chatbot]
+              simple:
+                model: fast
+                description: No knowledge
+                tools: []
+        """)
+        (tmp_path / "agents.yaml").write_text(yaml_content)
+        kdir = tmp_path / "knowledge"
+        kdir.mkdir()
+        (kdir / "global.yaml").write_text("content: |\n  Graph model.\n")
+        (kdir / "chatbot.yaml").write_text("content: |\n  Tool workflows.\n")
+
+        catalog = load_agent_catalog(tmp_path / "agents.yaml", knowledge_dir=kdir)
+
+        entry = catalog.get("chatbot")
+        assert "Graph model." in entry.knowledge_text
+        assert "Tool workflows." in entry.knowledge_text
+
+        simple = catalog.get("simple")
+        assert simple.knowledge_text == ""
+
+    def test_relative_knowledge_dir(self, tmp_path):
+        yaml_content = textwrap.dedent("""\
+            agents:
+              agent:
+                model: fast
+                description: Test
+                tools: []
+                knowledge: [global]
+        """)
+        (tmp_path / "agents.yaml").write_text(yaml_content)
+        kdir = tmp_path / "knowledge"
+        kdir.mkdir()
+        (kdir / "global.yaml").write_text("content: |\n  Domain info.\n")
+
+        catalog = load_agent_catalog(
+            tmp_path / "agents.yaml", knowledge_dir="knowledge"
+        )
+        entry = catalog.get("agent")
+        assert "Domain info." in entry.knowledge_text
+
+    def test_no_knowledge_dir_param(self, tmp_path):
+        yaml_content = textwrap.dedent("""\
+            agents:
+              agent:
+                model: fast
+                description: Test
+                tools: []
+                knowledge: [global]
+        """)
+        (tmp_path / "agents.yaml").write_text(yaml_content)
+
+        catalog = load_agent_catalog(tmp_path / "agents.yaml")
+        entry = catalog.get("agent")
+        assert entry.knowledge_text == ""

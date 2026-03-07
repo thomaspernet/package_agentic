@@ -7,17 +7,21 @@ Features:
   - tool_groups: reusable named tool sets, referenced via ``group: name``
   - Conditional tools: ``tool: name`` + ``when: dot.path`` (resolved against config)
   - Agent-level conditions: ``when: dot.path`` on the agent entry
+  - Knowledge files: optional ``knowledge/`` directory with per-scope YAML files.
+    Agents reference scopes via ``knowledge: [global, chatbot]`` in their entry.
+    Content is loaded once at startup and cached on ``AgentYamlEntry.knowledge_text``.
 
 Usage::
 
     from agents_core import load_agent_catalog
 
-    catalog = load_agent_catalog("agents.yaml")
+    catalog = load_agent_catalog("agents.yaml", knowledge_dir="knowledge/")
 
     # Resolve tools (expand groups, evaluate conditions)
     cfg = catalog.get("chatbot_agent", config=my_config)
     cfg.model   # "reasoning"
     cfg.tools   # ["think", "discover", ...] — groups expanded, conditions evaluated
+    cfg.knowledge_text  # concatenated knowledge from scopes listed in the agent entry
 
     # Check agent-level condition
     if catalog.is_enabled("web_search_agent", config=my_config):
@@ -44,6 +48,7 @@ class AgentYamlEntry(BaseModel):
     model: str
     description: str
     tools: list[str] = []
+    knowledge_text: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -120,15 +125,18 @@ class AgentCatalog:
     """Agent catalog loaded from ``agents.yaml``.
 
     Holds raw YAML data and resolves tool groups / conditions on ``get()``.
+    Knowledge scopes are pre-loaded from YAML files and cached.
     """
 
     def __init__(
         self,
         tool_groups: dict[str, list[str]],
         raw_agents: dict[str, dict[str, Any]],
+        knowledge: dict[str, str] | None = None,
     ) -> None:
         self._tool_groups = tool_groups
         self._raw_agents = raw_agents
+        self._knowledge: dict[str, str] = knowledge or {}
 
     def get(
         self,
@@ -139,6 +147,8 @@ class AgentCatalog:
 
         Groups are expanded and conditional tools are evaluated against
         *config*.  If *config* is ``None``, conditional tools are skipped.
+        Knowledge scopes listed in the agent's ``knowledge`` key are
+        concatenated into ``knowledge_text``.
         """
         if name not in self._raw_agents:
             available = ", ".join(sorted(self._raw_agents.keys()))
@@ -152,6 +162,9 @@ class AgentCatalog:
             description=raw["description"],
             tools=_resolve_tools(
                 raw.get("tools", []), self._tool_groups, config
+            ),
+            knowledge_text=_resolve_knowledge(
+                raw.get("knowledge", []), self._knowledge
             ),
         )
 
@@ -178,18 +191,68 @@ class AgentCatalog:
 
 
 # ---------------------------------------------------------------------------
+# Knowledge resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_knowledge(
+    scopes: list[str],
+    knowledge: dict[str, str],
+) -> str:
+    """Concatenate knowledge content for the listed scopes."""
+    if not scopes:
+        return ""
+    parts: list[str] = []
+    for scope in scopes:
+        text = knowledge.get(scope, "")
+        if text:
+            parts.append(text.strip())
+    return "\n\n".join(parts)
+
+
+def _load_knowledge_dir(knowledge_dir: Path) -> dict[str, str]:
+    """Load all YAML files from a knowledge directory.
+
+    Each file's stem becomes the scope name (e.g., ``global.yaml`` -> ``"global"``).
+    Each file must have a ``content`` key with the knowledge text.
+    """
+    try:
+        import yaml
+    except ImportError:
+        return {}
+
+    if not knowledge_dir.is_dir():
+        return {}
+
+    knowledge: dict[str, str] = {}
+    for yaml_file in sorted(knowledge_dir.glob("*.yaml")):
+        with open(yaml_file, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        content = data.get("content", "")
+        if content:
+            knowledge[yaml_file.stem] = content
+    return knowledge
+
+
+# ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
 
 
-def load_agent_catalog(path: str | Path) -> AgentCatalog:
+def load_agent_catalog(
+    path: str | Path,
+    knowledge_dir: str | Path | None = None,
+) -> AgentCatalog:
     """Load agent catalog from a YAML file.
 
     Args:
         path: Path to the agents.yaml file.
+        knowledge_dir: Optional path to a directory containing knowledge
+            YAML files (one per scope). Each file must have a ``content``
+            key. If relative, resolved against the agents.yaml parent dir.
 
     Returns:
-        AgentCatalog with all agent entries.
+        AgentCatalog with all agent entries and pre-loaded knowledge.
     """
     try:
         import yaml
@@ -207,7 +270,15 @@ def load_agent_catalog(path: str | Path) -> AgentCatalog:
     with open(path, encoding="utf-8") as f:
         data: dict[str, Any] = yaml.safe_load(f) or {}
 
+    knowledge: dict[str, str] = {}
+    if knowledge_dir is not None:
+        kdir = Path(knowledge_dir)
+        if not kdir.is_absolute():
+            kdir = path.parent / kdir
+        knowledge = _load_knowledge_dir(kdir)
+
     return AgentCatalog(
         tool_groups=data.get("tool_groups", {}),
         raw_agents=data.get("agents", {}),
+        knowledge=knowledge,
     )
