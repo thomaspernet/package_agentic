@@ -49,6 +49,7 @@ class AgentYamlEntry(BaseModel):
     description: str
     tools: list[str] = []
     knowledge_text: str = ""
+    max_turns: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +167,7 @@ class AgentCatalog:
             knowledge_text=_resolve_knowledge(
                 raw.get("knowledge", []), self._knowledge
             ),
+            max_turns=raw.get("max_turns"),
         )
 
     def is_enabled(
