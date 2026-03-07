@@ -19,6 +19,7 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any, Optional
 
 from agents import RunHooks
@@ -160,10 +161,18 @@ class TurnBudgetHooks(RunHooks):
     Each LLM invocation = 1 turn. The hook increments the budget's
     turn counter before each call. The dynamic instructions callable
     reads the budget state to inject awareness text.
+
+    Optionally accepts an on_event callback to emit budget status
+    events to the caller (e.g., for streaming to a frontend).
     """
 
-    def __init__(self, budget: TurnBudget) -> None:
+    def __init__(
+        self,
+        budget: TurnBudget,
+        on_event: Optional[Callable] = None,
+    ) -> None:
         self.budget = budget
+        self.on_event = on_event
 
     async def on_llm_start(
         self,
@@ -172,5 +181,16 @@ class TurnBudgetHooks(RunHooks):
         system_prompt: Optional[str],
         input_items: Any,
     ) -> None:
-        """Increment turn counter before each LLM call."""
+        """Increment turn counter and emit budget event."""
         self.budget.record_turn()
+        if self.on_event:
+            self.on_event({
+                "event": "turn_budget",
+                "data": {
+                    "turns_used": self.budget.turns_used,
+                    "effective_max": self.budget.effective_max,
+                    "remaining": self.budget.remaining,
+                    "extensions_used": self.budget.extensions_used,
+                    "is_warning": self.budget.is_warning,
+                },
+            })

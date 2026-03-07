@@ -356,7 +356,7 @@ class BaseAgentRunner:
             "max_turns": max_turns,
         }
         if turn_budget:
-            run_kwargs["hooks"] = TurnBudgetHooks(turn_budget)
+            run_kwargs["hooks"] = TurnBudgetHooks(turn_budget, on_event=on_event)
 
         result = Runner.run_streamed(**run_kwargs)
 
