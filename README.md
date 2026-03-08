@@ -839,6 +839,42 @@ agents_core/
 └── guardrails/              # Input validation
 ```
 
+## Future Work
+
+### Conversation-Driven Learning (Lessons)
+
+Agents today are stateless across sessions. When an agent makes a mistake, the only fix is manually adding rules to instructions, which causes instruction bloat and degrades attention over time.
+
+The goal: a post-conversation analysis pipeline that automatically extracts lessons from completed conversations and retrieves relevant ones at the start of future sessions.
+
+**Concept:**
+- An analysis agent reads completed conversation transcripts
+- It detects mistakes, inefficiencies, and user corrections (explicit: "no, I meant X"; implicit: wasted tool calls, repeated searches)
+- It extracts structured lessons (trigger context, mistake, correct behavior, confidence)
+- Lessons are stored in a `LessonStore` (SQLite default, overridable)
+- At conversation start, `InstructionBuilder` retrieves relevant lessons by context similarity and injects them as dynamic context
+
+**Key difference from rules:** rules grow linearly in the prompt; lessons scale in a database and only the 2-3 relevant ones are injected per conversation.
+
+**Open problems:**
+- Signal detection: how to reliably identify that a conversation went badly (especially when mistakes are subtle)
+- Generalization: turning one specific mistake into a reusable lesson without overfitting
+- Retrieval: selecting the right lessons from hundreds, with minimal context at conversation start
+- Quality: preventing bad lessons from degrading future performance (confidence scoring, decay, contradiction detection)
+
+**Research references:** ExpeL (cross-task insight extraction), Memento (case-based reasoning), A-Mem (self-organizing memory), Reflexion (verbal self-reflection), DSPy (automatic prompt optimization). See `documentation/04-brainstorms/10-agent-learning-from-conversations.md` in Digital Brain for the full analysis.
+
+### Dynamic System Prompts
+
+The OpenAI SDK re-sends the full system prompt every turn. For long instructions, this wastes tokens and may cause re-deliberation (agent re-reads its full playbook and reconsiders strategy mid-execution).
+
+**Possible approaches:**
+- Turn-aware instructions: full prompt on turn 1, condensed on turn 2+ (knowledge already in message history)
+- LLM-rewritten instructions: dynamically condense instructions based on conversation state
+- ITR-style retrieval: per-turn RAG over instruction fragments and tool subsets (95% token reduction in research, arxiv 2602.17046)
+
+**Status:** Parked. Current instructions work and there's no evidence of real problems. Worth revisiting when instruction size or conversation length becomes a measurable bottleneck.
+
 ## License
 
 MIT License
