@@ -15,6 +15,7 @@ A framework for building AI agents using the OpenAI Agents SDK. Fork this reposi
 - **InstructionBuilder** - Base class for section-based instruction assembly (persona, context, steps, rules, output)
 - **Output Models** - `ToolOutput` and `ChatResponse` dataclasses
 - **Agent Catalog** - Load agent definitions (model, description, tools) from a YAML file
+- **Tool Catalog** - Load tool metadata (description, category, recovery hints) from a YAML file
 - **Knowledge Store** - Inject domain knowledge from YAML files into agent system prompts
 - **Structured Agent-as-Tool** - Typed input schemas and structured error handling for sub-agent calls
 
@@ -33,8 +34,7 @@ export OPENAI_API_KEY="your-key"
 from agents import function_tool
 from agents_core import register_tool, AgentDefinition, register_agent
 
-@register_tool(name="get_weather", description="Get weather for a city",
-               category="api", parameters_description="city (str)", returns_description="dict")
+@register_tool(name="get_weather")
 @function_tool
 async def get_weather(ctx, city: str) -> dict:
     return {"temperature": 72, "conditions": "sunny"}
@@ -285,6 +285,89 @@ if catalog.is_enabled("web_search_agent", config=my_config):
 | `catalog.get(name, config=None)` | `AgentYamlEntry` | Resolved entry (groups expanded, conditions evaluated) |
 | `catalog.is_enabled(name, config=None)` | `bool` | Check agent-level `when` condition |
 | `catalog.list_agents()` | `list[str]` | All agent names in the catalog |
+
+## Tool Catalog (YAML-driven tool metadata)
+
+Keep static tool metadata (description, category, parameters, recovery hints) in a YAML file instead of repeating it in every `@register_tool()` decorator. The Python decorator becomes minimal — just a name linking the function to its YAML entry.
+
+### Basic usage
+
+```yaml
+# tools.yaml
+tools:
+  search_database:
+    description: >-
+      Search the database for records matching a query.
+      Supports semantic and keyword search modes.
+    category: search
+    parameters_description: "query (str): Search text. search_type (str): 'semantic' or 'keyword'."
+    returns_description: "JSON with matching records"
+    recovery_hint: "Requires a non-empty query. Prefer search_type='semantic' for natural language."
+
+  read_record:
+    description: Read a single record by UUID
+    category: search
+    parameters_description: "uuid (str): Record UUID"
+    returns_description: "JSON with record data"
+    recovery_hint: "Verify the UUID is valid. Use search_database to find the correct UUID."
+```
+
+```python
+from agents import function_tool
+from agents_core import register_tool, load_tool_catalog, get_tool_registry
+
+# Decorator is minimal — just links function to name
+@register_tool(name="search_database")
+@function_tool
+async def search_database(ctx, query: str, search_type: str = "keyword") -> str:
+    ...
+
+@register_tool(name="read_record")
+@function_tool
+async def read_record(ctx, uuid: str) -> str:
+    ...
+
+# At startup: load YAML and enrich the registry
+catalog = load_tool_catalog("tools.yaml")
+catalog.enrich_registry(get_tool_registry())
+```
+
+### How the merge works
+
+Registration happens in two phases:
+
+1. **Import time** — `@register_tool(name="search_database")` registers the function with an empty `ToolDefinition` (name + function only)
+2. **Startup** — `catalog.enrich_registry(registry)` patches each `ToolDefinition` with metadata from the YAML file
+
+YAML values always win over decorator values. Empty YAML fields do not overwrite existing decorator values. This makes it backward compatible — decorators with full metadata still work without a YAML file.
+
+### Backward compatibility
+
+The decorator still accepts all metadata fields. These two approaches are equivalent:
+
+```python
+# Approach 1: YAML-driven (preferred for large projects)
+@register_tool(name="search_database")
+
+# Approach 2: Decorator-driven (still works, no YAML needed)
+@register_tool(
+    name="search_database",
+    description="Search the database",
+    category="search",
+    parameters_description="query (str): Search text",
+    returns_description="JSON with results",
+)
+```
+
+If both are provided, YAML wins for non-empty fields.
+
+### API reference
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `catalog.get(name)` | `ToolYamlEntry` | Resolved entry for a single tool |
+| `catalog.list_tools()` | `list[str]` | All tool names in the catalog |
+| `catalog.enrich_registry(registry)` | `None` | Patch registry ToolDefinitions with YAML metadata |
 
 ## Knowledge Store
 
@@ -738,6 +821,7 @@ agents_core/
 │   ├── agent_catalog.py     # YAML-driven agent catalog (load_agent_catalog)
 │   ├── agent_registry.py    # AgentDefinition + registry
 │   ├── agent_factory.py     # create_agent_from_registry()
+│   ├── tool_catalog.py      # YAML-driven tool catalog (load_tool_catalog)
 │   ├── tool_registry.py     # ToolDefinition + registry
 │   └── guardrail_registry.py
 ├── services/
