@@ -68,6 +68,7 @@ class MCPServerBuilder:
         tool_catalog: ToolCatalog,
         mcp_config: MCPServerConfig,
         context_factory: MCPContextFactory,
+        **fastmcp_kwargs: Any,
     ) -> None:
         self._server_name = server_name
         self._registry = tool_registry
@@ -75,6 +76,7 @@ class MCPServerBuilder:
         self._config = mcp_config
         self._context_factory = context_factory
         self._adapter = MCPToolAdapter(tool_registry, context_factory)
+        self._fastmcp_kwargs = fastmcp_kwargs
 
     def build(self, include_write_tools: bool = False) -> Any:
         """Generate a fully configured FastMCP server.
@@ -89,7 +91,7 @@ class MCPServerBuilder:
         FastMCP = _import_fastmcp()
         ToolAnnotations = _import_tool_annotations()
 
-        mcp = FastMCP(self._server_name)
+        mcp = FastMCP(self._server_name, **self._fastmcp_kwargs)
 
         # Collect tool names
         tool_names = list(self._config.tools)
@@ -207,6 +209,7 @@ def build_mcp_server(
     mcp_config: MCPServerConfig,
     context_factory: MCPContextFactory,
     include_write_tools: bool = False,
+    **fastmcp_kwargs: Any,
 ) -> Any:
     """Build a FastMCP server from the tool registry — convenience function.
 
@@ -247,5 +250,6 @@ def build_mcp_server(
         tool_catalog=tool_catalog,
         mcp_config=mcp_config,
         context_factory=context_factory,
+        **fastmcp_kwargs,
     )
     return builder.build(include_write_tools=include_write_tools)
