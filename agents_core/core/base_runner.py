@@ -310,13 +310,20 @@ class BaseAgentRunner:
             output_type = self._resolve_output_type(agent_def.output_dataclass)
             use_json = output_type and output_type != str
 
-            messages: list[Dict[str, str]] = []
+            # Reuse or build the SDK's AgentOutputSchema so the fallback
+            # LLM sees the identical JSON schema (including the "response"
+            # wrapper for dataclass output types) and we can parse correctly.
+            output_schema = None
             if use_json:
-                messages.append({
-                    "role": "system",
-                    "content": "You must respond with valid JSON.",
-                })
-                prompt += "\n\nReturn your response as JSON."
+                from agents.agent_output import AgentOutputSchema, AgentOutputSchemaBase
+                if isinstance(output_type, AgentOutputSchemaBase):
+                    output_schema = output_type
+                else:
+                    output_schema = AgentOutputSchema(
+                        output_type, strict_json_schema=False,
+                    )
+
+            messages: list[Dict[str, str]] = []
             messages.append({"role": "user", "content": prompt})
 
             kwargs: Dict[str, Any] = {
@@ -324,7 +331,15 @@ class BaseAgentRunner:
                 "messages": messages,
                 "temperature": 0.3,
             }
-            if use_json:
+            if output_schema:
+                kwargs["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "output",
+                        "schema": output_schema.json_schema(),
+                    },
+                }
+            elif use_json:
                 kwargs["response_format"] = {"type": "json_object"}
 
             response = await client.chat.completions.create(**kwargs)
@@ -333,19 +348,11 @@ class BaseAgentRunner:
             if not use_json:
                 return content
 
-            data = json.loads(content)
-            if output_type and output_type != str:
-                inner_type = getattr(output_type, "output_type", output_type)
-                # Filter unknown keys — LLMs sometimes return extra fields
-                # (e.g. 'response') that the output dataclass doesn't expect.
-                import dataclasses as _dc
+            # Use the SDK's schema to parse — handles "response" unwrapping
+            if output_schema:
+                return output_schema.validate_json(content)
 
-                if _dc.is_dataclass(inner_type) and isinstance(data, dict):
-                    valid_keys = {f.name for f in _dc.fields(inner_type)}
-                    data = {k: v for k, v in data.items() if k in valid_keys}
-                return inner_type(**data)
-
-            return data
+            return json.loads(content)
 
     async def _execute_streamed(
         self,
