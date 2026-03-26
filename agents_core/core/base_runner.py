@@ -336,6 +336,13 @@ class BaseAgentRunner:
             data = json.loads(content)
             if output_type and output_type != str:
                 inner_type = getattr(output_type, "output_type", output_type)
+                # Filter unknown keys — LLMs sometimes return extra fields
+                # (e.g. 'response') that the output dataclass doesn't expect.
+                import dataclasses as _dc
+
+                if _dc.is_dataclass(inner_type) and isinstance(data, dict):
+                    valid_keys = {f.name for f in _dc.fields(inner_type)}
+                    data = {k: v for k, v in data.items() if k in valid_keys}
                 return inner_type(**data)
 
             return data
