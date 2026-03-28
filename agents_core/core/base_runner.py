@@ -139,7 +139,13 @@ class BaseAgentRunner:
 
         agent = Agent(**agent_kwargs)
 
-        logger.info(f"Created agent: {agent_name} (model: {effective_model})")
+        settings_info = ""
+        if model_settings:
+            if model_settings.reasoning:
+                settings_info = f", effort={model_settings.reasoning.effort}"
+            elif model_settings.temperature is not None:
+                settings_info = f", temp={model_settings.temperature}"
+        logger.info(f"Created agent: {agent_name} (model: {effective_model}{settings_info})")
 
         return agent
 
