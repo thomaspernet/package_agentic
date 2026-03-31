@@ -42,6 +42,7 @@ class BaseAgentRunner:
         self.agent_registry = get_agent_registry()
         self.tool_registry = get_tool_registry()
         self.guardrail_registry = get_guardrail_registry()
+        self.last_usage: Optional[Dict[str, Any]] = None
 
         self.tool_map = {
             name: tool_def.function
@@ -278,6 +279,7 @@ class BaseAgentRunner:
 
         result = await Runner.run(**run_kwargs)
 
+        self.last_usage = self._aggregate_usage(result)
         logger.info(f"Agent '{agent_name}' completed successfully")
         return result.final_output
 
@@ -315,6 +317,7 @@ class BaseAgentRunner:
                 context=context,
                 max_turns=max_turns,
             )
+            self.last_usage = self._aggregate_usage(run_result)
             logger.info(f"Agent '{agent_name}' completed successfully")
             return run_result.final_output
 
@@ -381,6 +384,17 @@ class BaseAgentRunner:
 
             response = await client.chat.completions.create(**kwargs)
             content = response.choices[0].message.content
+
+            # Capture fallback usage from the direct LLM call
+            if response.usage:
+                self.last_usage = {
+                    "requests": 1,
+                    "input_tokens": response.usage.prompt_tokens or 0,
+                    "output_tokens": response.usage.completion_tokens or 0,
+                    "total_tokens": response.usage.total_tokens or 0,
+                    "input_tokens_details": {"cached_tokens": 0},
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                }
 
             if not use_json:
                 return content
@@ -509,6 +523,7 @@ class BaseAgentRunner:
         usage = self._build_usage_dict(stream_usage)
         # Last response's input_tokens = actual context window usage (not sum)
         usage["last_input_tokens"] = last_input_tokens
+        self.last_usage = usage
 
         if on_event:
             on_event({
@@ -543,8 +558,14 @@ class BaseAgentRunner:
     def _aggregate_usage(result: Any) -> Dict[str, Any]:
         """Aggregate token usage from a non-streaming RunResult."""
         usage = Usage()
-        for response in result.raw_responses:
-            usage.add(response.usage)
+        try:
+            raw_responses = getattr(result, "raw_responses", None) or []
+            for response in raw_responses:
+                resp_usage = getattr(response, "usage", None)
+                if resp_usage:
+                    usage.add(resp_usage)
+        except TypeError:
+            pass
         return BaseAgentRunner._build_usage_dict(usage)
 
     async def run_agent(
