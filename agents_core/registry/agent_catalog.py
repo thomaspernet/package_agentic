@@ -61,6 +61,7 @@ class AgentYamlEntry(BaseModel):
     max_turns: int | None = None
     turn_budget: TurnBudgetConfig | None = None
     error_recovery: bool = True
+    effort: str | None = None
     tool_rules: dict[str, dict[str, Any]] = {}
 
     def build_turn_budget(self) -> "TurnBudget | None":
@@ -212,6 +213,7 @@ class AgentCatalog:
             turn_budget=budget_cfg,
             error_recovery=raw.get("error_recovery", True),
             tool_rules=raw.get("tool_rules", {}),
+            effort=raw.get("effort"),
         )
 
     def is_enabled(
