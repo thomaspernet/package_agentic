@@ -3,7 +3,9 @@
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
+from agents import RunContextWrapper
 
+from sinan_agentic_core.core.capabilities import Capability
 from sinan_agentic_core.core.turn_budget import TurnBudget, TurnBudgetHooks
 
 
@@ -439,6 +441,102 @@ class TestBaseAgentRunnerTurnBudget:
 
             call_args = mock_basic.call_args
             assert call_args[0][3] == 15  # uses original max_turns
+
+
+# ------------------------------------------------------------------ #
+# Capability protocol adoption
+# ------------------------------------------------------------------ #
+
+
+class TestTurnBudgetIsCapability:
+    def test_is_capability_subclass(self):
+        assert issubclass(TurnBudget, Capability)
+
+    def test_instance_is_capability(self):
+        assert isinstance(TurnBudget(), Capability)
+
+    def test_instructions_returns_initial_section(self):
+        budget = TurnBudget(default_turns=10)
+        ctx = RunContextWrapper(context=None)
+        section = budget.instructions(ctx)
+        assert section is not None
+        assert "10 turns" in section
+
+    def test_instructions_reflects_state(self):
+        budget = TurnBudget(default_turns=10, reminder_at=2)
+        budget.turns_used = 5
+        ctx = RunContextWrapper(context=None)
+        section = budget.instructions(ctx)
+        assert section is not None
+        assert "5 of 10" in section
+
+    def test_instructions_matches_build_instruction_section(self):
+        budget = TurnBudget(default_turns=10, reminder_at=2)
+        budget.turns_used = 9
+        ctx = RunContextWrapper(context=None)
+        assert budget.instructions(ctx) == budget.build_instruction_section()
+
+    def test_tools_default_is_empty(self):
+        # TurnBudget exposes no Capability-managed tools — request_extension
+        # is wired up separately via turn_budget_tool.py.
+        assert TurnBudget().tools() == []
+
+
+class TestTurnBudgetClone:
+    def test_clone_returns_turn_budget(self):
+        clone = TurnBudget().clone()
+        assert isinstance(clone, TurnBudget)
+
+    def test_clone_is_independent_instance(self):
+        original = TurnBudget(default_turns=10)
+        clone = original.clone()
+        assert clone is not original
+
+    def test_clone_preserves_configuration(self):
+        original = TurnBudget(
+            default_turns=8,
+            reminder_at=1,
+            max_extensions=4,
+            extension_size=3,
+            absolute_max=20,
+        )
+        clone = original.clone()
+        assert clone.default_turns == 8
+        assert clone.reminder_at == 1
+        assert clone.max_extensions == 4
+        assert clone.extension_size == 3
+        assert clone.absolute_max == 20
+
+    def test_clone_zeroes_counters(self):
+        original = TurnBudget(default_turns=10)
+        original.turns_used = 7
+        original.extensions_used = 2
+        original.extension_reasons.extend(["a", "b"])
+
+        clone = original.clone()
+        assert clone.turns_used == 0
+        assert clone.extensions_used == 0
+        assert clone.extension_reasons == []
+
+    def test_clone_does_not_mutate_original(self):
+        original = TurnBudget(default_turns=10)
+        original.turns_used = 4
+        original.extensions_used = 1
+        original.extension_reasons.append("keep me")
+
+        clone = original.clone()
+        clone.record_turn()
+        clone.request_extension("clone-only reason")
+
+        assert original.turns_used == 4
+        assert original.extensions_used == 1
+        assert original.extension_reasons == ["keep me"]
+
+    def test_clone_does_not_share_extension_reasons(self):
+        original = TurnBudget(default_turns=10)
+        original.extension_reasons.append("seed")
+        clone = original.clone()
+        assert clone.extension_reasons is not original.extension_reasons
 
 
 # ------------------------------------------------------------------ #

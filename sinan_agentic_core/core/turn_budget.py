@@ -22,13 +22,15 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import Any, Optional
 
-from agents import RunHooks
+from agents import RunContextWrapper, RunHooks
+
+from .capabilities import Capability
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class TurnBudget:
+class TurnBudget(Capability):
     """Soft turn budget with self-extension capability.
 
     The agent perceives `effective_max` as its budget. The SDK's hard
@@ -153,6 +155,20 @@ class TurnBudget:
         self.turns_used = 0
         self.extensions_used = 0
         self.extension_reasons.clear()
+
+    def instructions(self, ctx: RunContextWrapper[Any]) -> str | None:
+        """Capability hook — return the current budget instruction fragment."""
+        return self.build_instruction_section()
+
+    def clone(self) -> "TurnBudget":
+        """Return a fresh ``TurnBudget`` with the same configuration and zeroed counters."""
+        return TurnBudget(
+            default_turns=self.default_turns,
+            reminder_at=self.reminder_at,
+            max_extensions=self.max_extensions,
+            extension_size=self.extension_size,
+            absolute_max=self.absolute_max,
+        )
 
 
 class TurnBudgetHooks(RunHooks):
