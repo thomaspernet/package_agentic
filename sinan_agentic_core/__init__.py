@@ -37,7 +37,7 @@ Quick Start:
     )
 """
 
-from .core import BaseAgentRunner, ToolErrorRecovery, ToolErrorRecoveryHooks, TurnBudget, TurnBudgetHooks
+from .core import BaseAgentRunner, Capability, ToolErrorRecovery, TurnBudget
 from .instructions import InstructionBuilder
 from .session import AgentSession, ConversationHistory, SQLiteSessionStore
 from .models.context import AgentContext
@@ -76,10 +76,9 @@ from .utils import tool_error, tool_response, unwrap_context
 __all__ = [
     # Core
     "BaseAgentRunner",
+    "Capability",
     "ToolErrorRecovery",
-    "ToolErrorRecoveryHooks",
     "TurnBudget",
-    "TurnBudgetHooks",
     # Instructions
     "InstructionBuilder",
     # Session

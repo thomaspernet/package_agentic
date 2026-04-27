@@ -19,7 +19,8 @@ start of each ``execute()`` call.
 from __future__ import annotations
 
 import copy
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Optional
 
 from agents import RunContextWrapper, Tool
 
@@ -30,7 +31,17 @@ class Capability:
     Default implementations are no-ops so that a trivial subclass type-checks
     under ``mypy --strict`` without overriding anything. Override the methods
     that matter for the behavior you are adding.
+
+    Lifecycle methods mirror the SDK's ``RunHooks`` shape but with simpler
+    abstracted signatures. The runtime adapter (``_CompositeHooks``) bridges
+    SDK callbacks to these methods.
+
+    Streaming events: assign ``capability.on_event`` to a callback to emit
+    custom events during a run. The runtime sets this on cloned capabilities
+    when streaming.
     """
+
+    on_event: Optional[Callable[[dict[str, Any]], None]] = None
 
     def instructions(self, ctx: RunContextWrapper[Any]) -> str | None:
         """Contribute a fragment to the system prompt for the next turn.
@@ -39,6 +50,32 @@ class Capability:
         from all attached capabilities and appends them to the agent's
         base instructions before each LLM call.
         """
+        return None
+
+    def on_agent_start(
+        self,
+        ctx: RunContextWrapper[Any],
+        agent: Any,
+    ) -> None:
+        """Called when the agent run begins."""
+        return None
+
+    def on_agent_end(
+        self,
+        ctx: RunContextWrapper[Any],
+        agent: Any,
+        output: Any,
+    ) -> None:
+        """Called when the agent run ends with a final output."""
+        return None
+
+    def on_handoff(
+        self,
+        ctx: RunContextWrapper[Any],
+        from_agent: Any,
+        to_agent: Any,
+    ) -> None:
+        """Called when control hands off from one agent to another."""
         return None
 
     def on_tool_start(
@@ -59,6 +96,25 @@ class Capability:
         """Called immediately after a tool executes."""
         return None
 
+    def on_llm_start(
+        self,
+        ctx: RunContextWrapper[Any],
+        agent: Any,
+        system_prompt: Optional[str],
+        input_items: Any,
+    ) -> None:
+        """Called immediately before the model is invoked for a turn."""
+        return None
+
+    def on_llm_end(
+        self,
+        ctx: RunContextWrapper[Any],
+        agent: Any,
+        response: Any,
+    ) -> None:
+        """Called immediately after the model returns a response."""
+        return None
+
     def reset(self) -> None:
         """Reset mutable state. Called at the start of each ``execute()`` call."""
         return None
@@ -71,7 +127,9 @@ class Capability:
         capability holds non-copyable references (open connections, locks)
         and needs custom copy semantics.
         """
-        return copy.deepcopy(self)
+        clone = copy.deepcopy(self)
+        clone.on_event = None
+        return clone
 
     def tools(self) -> list[Tool]:
         """Return tools this capability exposes to the agent.

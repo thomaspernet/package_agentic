@@ -6,11 +6,12 @@ Provides a flexible turn budget that agents can self-manage:
 - Agent gets warned when running low on turns
 - Agent can call request_extension() to approve more turns for itself
 
-The TurnBudgetHooks class tracks turns via on_llm_start and injects
-budget awareness into the agent's instructions dynamically.
+TurnBudget is a Capability: the runtime calls ``on_llm_start`` to count
+turns and ``instructions`` to inject budget awareness before each LLM call.
 
 Usage:
     budget = TurnBudget(default_turns=10)
+    # Wire via AgentDefinition.capabilities=[budget] or pass to execute().
     # SDK gets max_turns = budget.absolute_max (hard ceiling)
     # Agent perceives budget.default_turns (soft limit)
     # At turn 8, agent sees "2 turns remaining" in instructions
@@ -19,12 +20,12 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from collections.abc import Callable
 from typing import Any, Optional
 
-from agents import RunContextWrapper, RunHooks
+from agents import RunContextWrapper, Tool
 
 from .capabilities import Capability
+from .turn_budget_tool import request_extension_tool
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +161,31 @@ class TurnBudget(Capability):
         """Capability hook — return the current budget instruction fragment."""
         return self.build_instruction_section()
 
+    def on_llm_start(
+        self,
+        ctx: RunContextWrapper[Any],
+        agent: Any,
+        system_prompt: Optional[str],
+        input_items: Any,
+    ) -> None:
+        """Capability hook — count this turn and emit a streaming event."""
+        self.record_turn()
+        if self.on_event:
+            self.on_event({
+                "event": "turn_budget",
+                "data": {
+                    "turns_used": self.turns_used,
+                    "effective_max": self.effective_max,
+                    "remaining": self.remaining,
+                    "extensions_used": self.extensions_used,
+                    "is_warning": self.is_warning,
+                },
+            })
+
+    def tools(self) -> list[Tool]:
+        """Expose request_extension so the agent can self-extend its budget."""
+        return [request_extension_tool]
+
     def clone(self) -> "TurnBudget":
         """Return a fresh ``TurnBudget`` with the same configuration and zeroed counters."""
         return TurnBudget(
@@ -169,44 +195,3 @@ class TurnBudget(Capability):
             extension_size=self.extension_size,
             absolute_max=self.absolute_max,
         )
-
-
-class TurnBudgetHooks(RunHooks):
-    """RunHooks subclass that tracks turns via on_llm_start.
-
-    Each LLM invocation = 1 turn. The hook increments the budget's
-    turn counter before each call. The dynamic instructions callable
-    reads the budget state to inject awareness text.
-
-    Optionally accepts an on_event callback to emit budget status
-    events to the caller (e.g., for streaming to a frontend).
-    """
-
-    def __init__(
-        self,
-        budget: TurnBudget,
-        on_event: Optional[Callable] = None,
-    ) -> None:
-        self.budget = budget
-        self.on_event = on_event
-
-    async def on_llm_start(
-        self,
-        context: Any,
-        agent: Any,
-        system_prompt: Optional[str],
-        input_items: Any,
-    ) -> None:
-        """Increment turn counter and emit budget event."""
-        self.budget.record_turn()
-        if self.on_event:
-            self.on_event({
-                "event": "turn_budget",
-                "data": {
-                    "turns_used": self.budget.turns_used,
-                    "effective_max": self.budget.effective_max,
-                    "remaining": self.budget.remaining,
-                    "extensions_used": self.budget.extensions_used,
-                    "is_warning": self.budget.is_warning,
-                },
-            })

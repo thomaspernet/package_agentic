@@ -3,33 +3,28 @@
 When a tool returns an error, agents often retry with identical parameters,
 wasting turns in a loop. ToolErrorRecovery solves this by:
 
-1. Tracking tool errors and the arguments that caused them (via RunHooks)
+1. Tracking tool errors and the arguments that caused them (Capability hooks)
 2. Detecting repeated identical calls (same tool + same args)
 3. Injecting progressive recovery guidance into the agent's instructions
-   before each LLM call (via dynamic instructions)
+   before each LLM call (via Capability.instructions)
 
-This follows the same pattern as TurnBudget:
-- State is tracked via RunHooks (on_tool_start / on_tool_end)
-- Guidance is injected via dynamic instructions (callable)
-- The agent reads the guidance and decides what to do (leverages LLM intelligence)
+ToolErrorRecovery is a Capability — wire it via
+``AgentDefinition.capabilities`` or pass to ``execute()`` directly.
 
 Works for all tool types: custom @function_tool, agent-as-tool, and MCP tools.
 
 Usage:
     recovery = ToolErrorRecovery(tool_registry=registry)
-    hooks = ToolErrorRecoveryHooks(recovery)
-    # Compose with other hooks, wire into dynamic instructions
-    # See BaseAgentRunner for integration details.
+    agent_def = AgentDefinition(..., capabilities=[recovery])
 """
 
 import hashlib
 import json
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
-from agents import RunContextWrapper, RunHooks, Tool
+from agents import RunContextWrapper, Tool
 
 from .capabilities import Capability
 
@@ -106,7 +101,7 @@ class ToolErrorRecovery(Capability):
     ) -> None:
         """Record a tool result, tracking errors and clearing on success.
 
-        Called from ToolErrorRecoveryHooks.on_tool_end(). Parses the result
+        Called from on_tool_end(). Parses the result
         to detect errors and tracks:
         - Total error count per tool
         - Identical-argument retry count
@@ -253,10 +248,15 @@ class ToolErrorRecovery(Capability):
         tool: Tool,
         result: str,
     ) -> None:
-        """Capability hook — record the tool result, tracking any error."""
+        """Capability hook — record the tool result and emit any recovery event."""
         tool_name = getattr(tool, "name", str(tool))
         arguments = self._pending_args.pop(tool_name, "")
         self.record_tool_result(tool_name, result, arguments)
+        if self.on_event and self.has_errors:
+            self.on_event({
+                "event": "tool_error_recovery",
+                "data": self.get_error_summary(),
+            })
 
     def clone(self) -> "ToolErrorRecovery":
         """Return a fresh ``ToolErrorRecovery`` with the same configuration and zeroed state."""
@@ -367,52 +367,3 @@ class ToolErrorRecovery(Capability):
             return arguments[:80]
 
 
-class ToolErrorRecoveryHooks(RunHooks):
-    """RunHooks subclass that tracks tool errors via on_tool_end.
-
-    Captures tool name, arguments, and result after each tool call.
-    The ToolErrorRecovery instance analyzes the result and tracks errors.
-    Dynamic instructions read recovery.build_instruction_section() to
-    inject guidance before the next LLM call.
-
-    Optionally accepts an on_event callback for streaming error events.
-    """
-
-    def __init__(
-        self,
-        recovery: ToolErrorRecovery,
-        on_event: Optional[Callable] = None,
-    ) -> None:
-        self.recovery = recovery
-        self.on_event = on_event
-
-    async def on_tool_start(
-        self,
-        context: Any,
-        agent: Any,
-        tool: Any,
-    ) -> None:
-        """Capture tool arguments before execution.
-
-        The SDK passes a ToolContext (subclass of RunContextWrapper) that
-        has tool_arguments. We forward them to the Capability so on_tool_end
-        can record errors with the args that triggered them.
-        """
-        arguments = getattr(context, "tool_arguments", "")
-        self.recovery.on_tool_start(context, tool, arguments)
-
-    async def on_tool_end(
-        self,
-        context: Any,
-        agent: Any,
-        tool: Any,
-        result: str,
-    ) -> None:
-        """Record tool result for error tracking."""
-        self.recovery.on_tool_end(context, tool, result)
-
-        if self.on_event and self.recovery.has_errors:
-            self.on_event({
-                "event": "tool_error_recovery",
-                "data": self.recovery.get_error_summary(),
-            })

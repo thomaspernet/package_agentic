@@ -6,7 +6,7 @@ import pytest
 from agents import RunContextWrapper
 
 from sinan_agentic_core.core.capabilities import Capability
-from sinan_agentic_core.core.turn_budget import TurnBudget, TurnBudgetHooks
+from sinan_agentic_core.core.turn_budget import TurnBudget
 
 
 # ------------------------------------------------------------------ #
@@ -207,25 +207,30 @@ class TestBuildInstructionSection:
 
 
 # ------------------------------------------------------------------ #
-# TurnBudgetHooks
+# TurnBudget — on_llm_start capability hook
 # ------------------------------------------------------------------ #
 
 
-class TestTurnBudgetHooks:
-    @pytest.mark.asyncio
-    async def test_on_llm_start_records_turn(self):
+class TestTurnBudgetOnLlmStart:
+    def test_on_llm_start_records_turn(self):
         budget = TurnBudget()
-        hooks = TurnBudgetHooks(budget)
-        await hooks.on_llm_start(Mock(), Mock(), None, [])
+        budget.on_llm_start(Mock(), Mock(), None, [])
         assert budget.turns_used == 1
 
-    @pytest.mark.asyncio
-    async def test_multiple_llm_starts(self):
+    def test_multiple_llm_starts(self):
         budget = TurnBudget()
-        hooks = TurnBudgetHooks(budget)
         for _ in range(5):
-            await hooks.on_llm_start(Mock(), Mock(), None, [])
+            budget.on_llm_start(Mock(), Mock(), None, [])
         assert budget.turns_used == 5
+
+    def test_on_llm_start_emits_event_when_streaming(self):
+        budget = TurnBudget(default_turns=10)
+        events: list[dict] = []
+        budget.on_event = events.append
+        budget.on_llm_start(Mock(), Mock(), None, [])
+        assert len(events) == 1
+        assert events[0]["event"] == "turn_budget"
+        assert events[0]["data"]["turns_used"] == 1
 
 
 # ------------------------------------------------------------------ #
@@ -319,25 +324,25 @@ class TestBaseAgentRunnerTurnBudget:
         ):
             return BaseAgentRunner()
 
-    def test_make_instructions_dynamic_from_static(self, runner):
+    def test_apply_dynamic_instructions_from_static(self, runner):
         agent = Mock()
         agent.instructions = "Static instructions."
         budget = TurnBudget(default_turns=10)
         budget.turns_used = 8
 
-        runner._make_instructions_dynamic(agent, budget)
+        runner._apply_dynamic_instructions(agent, [budget])
 
         assert callable(agent.instructions)
         result = agent.instructions(Mock(), Mock())
         assert "Static instructions." in result
         assert "remaining" in result and "10" in result
 
-    def test_make_instructions_dynamic_from_callable(self, runner):
+    def test_apply_dynamic_instructions_from_callable(self, runner):
         agent = Mock()
         agent.instructions = lambda ctx, a: "Dynamic base."
         budget = TurnBudget(default_turns=5)
 
-        runner._make_instructions_dynamic(agent, budget)
+        runner._apply_dynamic_instructions(agent, [budget])
 
         assert callable(agent.instructions)
         result = agent.instructions(Mock(), Mock())
@@ -346,6 +351,8 @@ class TestBaseAgentRunnerTurnBudget:
 
     @pytest.mark.asyncio
     async def test_execute_basic_with_budget(self, runner):
+        from sinan_agentic_core.core.base_runner import _CompositeHooks
+
         budget = TurnBudget(default_turns=10, absolute_max=25)
         context = Mock()
         session = Mock()
@@ -363,13 +370,13 @@ class TestBaseAgentRunnerTurnBudget:
 
                 result = await runner._execute_basic(
                     "test_agent", context, session, 25, "hello",
-                    turn_budget=budget,
+                    capabilities=[budget],
                 )
 
                 assert result == "test output"
                 # Verify hooks were passed
                 call_kwargs = MockRunner.run.call_args[1]
-                assert isinstance(call_kwargs["hooks"], TurnBudgetHooks)
+                assert isinstance(call_kwargs["hooks"], _CompositeHooks)
                 assert call_kwargs["max_turns"] == 25
 
     @pytest.mark.asyncio
@@ -390,7 +397,7 @@ class TestBaseAgentRunnerTurnBudget:
             call_args = mock_basic.call_args
             # sdk_max_turns should be absolute_max
             assert call_args[0][3] == 25  # max_turns positional arg
-            assert call_args[1]["turn_budget"] is budget
+            assert budget in call_args[1]["capabilities"]
 
     @pytest.mark.asyncio
     async def test_execute_attaches_budget_to_context(self, runner):
@@ -476,10 +483,9 @@ class TestTurnBudgetIsCapability:
         ctx = RunContextWrapper(context=None)
         assert budget.instructions(ctx) == budget.build_instruction_section()
 
-    def test_tools_default_is_empty(self):
-        # TurnBudget exposes no Capability-managed tools — request_extension
-        # is wired up separately via turn_budget_tool.py.
-        assert TurnBudget().tools() == []
+    def test_tools_returns_request_extension(self):
+        from sinan_agentic_core.core.turn_budget_tool import request_extension_tool
+        assert TurnBudget().tools() == [request_extension_tool]
 
 
 class TestTurnBudgetClone:
@@ -549,11 +555,6 @@ class TestTopLevelImports:
         from sinan_agentic_core import TurnBudget
         assert TurnBudget is not None
 
-    def test_turn_budget_hooks_importable(self):
-        from sinan_agentic_core import TurnBudgetHooks
-        assert TurnBudgetHooks is not None
-
     def test_turn_budget_from_core(self):
-        from sinan_agentic_core.core import TurnBudget, TurnBudgetHooks
+        from sinan_agentic_core.core import TurnBudget
         assert TurnBudget is not None
-        assert TurnBudgetHooks is not None
