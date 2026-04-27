@@ -4,7 +4,9 @@ import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agents import RunContextWrapper
 
+from sinan_agentic_core.core.capabilities import Capability
 from sinan_agentic_core.core.tool_error_recovery import (
     ToolErrorEntry,
     ToolErrorRecovery,
@@ -595,3 +597,132 @@ class TestTopLevelImports:
         from sinan_agentic_core import ToolErrorRecovery, ToolErrorRecoveryHooks
         assert ToolErrorRecovery is not None
         assert ToolErrorRecoveryHooks is not None
+
+
+# ------------------------------------------------------------------ #
+# Capability protocol adoption
+# ------------------------------------------------------------------ #
+
+
+class TestToolErrorRecoveryIsCapability:
+    def test_is_capability_subclass(self):
+        assert issubclass(ToolErrorRecovery, Capability)
+
+    def test_instance_is_capability(self):
+        assert isinstance(ToolErrorRecovery(), Capability)
+
+    def test_instructions_returns_none_when_clean(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        assert recovery.instructions(ctx) is None
+
+    def test_instructions_returns_section_when_errors_tracked(self):
+        recovery = ToolErrorRecovery()
+        recovery.record_tool_result("my_tool", json.dumps({"error": "fail"}))
+        ctx = RunContextWrapper(context=None)
+        section = recovery.instructions(ctx)
+        assert section is not None
+        assert "Tool Error Recovery" in section
+
+    def test_instructions_matches_build_instruction_section(self):
+        recovery = ToolErrorRecovery()
+        recovery.record_tool_result("my_tool", json.dumps({"error": "fail"}))
+        ctx = RunContextWrapper(context=None)
+        assert recovery.instructions(ctx) == recovery.build_instruction_section()
+
+    def test_on_tool_start_then_end_records_error(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        tool = Mock()
+        tool.name = "my_tool"
+
+        recovery.on_tool_start(ctx, tool, json.dumps({"q": "x"}))
+        recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
+
+        summary = recovery.get_error_summary()
+        assert summary["my_tool"]["error"] == "fail"
+
+    def test_on_tool_end_uses_args_from_on_tool_start(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        tool = Mock()
+        tool.name = "my_tool"
+
+        # Two identical-arg failures via the Capability hooks should be detected
+        # as identical retries.
+        args = json.dumps({"q": "x"})
+        for _ in range(2):
+            recovery.on_tool_start(ctx, tool, args)
+            recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
+
+        summary = recovery.get_error_summary()
+        assert summary["my_tool"]["identical_count"] == 2
+
+    def test_tools_default_is_empty(self):
+        assert ToolErrorRecovery().tools() == []
+
+
+class TestToolErrorRecoveryClone:
+    def test_clone_returns_tool_error_recovery(self):
+        clone = ToolErrorRecovery().clone()
+        assert isinstance(clone, ToolErrorRecovery)
+
+    def test_clone_is_independent_instance(self):
+        original = ToolErrorRecovery()
+        clone = original.clone()
+        assert clone is not original
+
+    def test_clone_preserves_configuration(self):
+        registry = Mock()
+        original = ToolErrorRecovery(
+            tool_registry=registry,
+            mcp_hints={"mcp_search": "Use a longer query."},
+            max_identical_before_stop=5,
+        )
+        clone = original.clone()
+        assert clone._registry is registry
+        assert clone._mcp_hints == {"mcp_search": "Use a longer query."}
+        assert clone.max_identical_before_stop == 5
+
+    def test_clone_does_not_share_mcp_hints(self):
+        original = ToolErrorRecovery(mcp_hints={"a": "hint"})
+        clone = original.clone()
+        clone._mcp_hints["b"] = "new hint"
+        assert "b" not in original._mcp_hints
+
+    def test_clone_zeroes_error_state(self):
+        original = ToolErrorRecovery()
+        original.record_tool_result("t", json.dumps({"error": "old"}), json.dumps({"a": 1}))
+        original.on_tool_start(RunContextWrapper(context=None), Mock(name="pending_tool"), "{}")
+        assert original.has_errors
+
+        clone = original.clone()
+        assert not clone.has_errors
+        assert clone.get_error_summary() == {}
+        assert clone._last_args == {}
+        assert clone._pending_args == {}
+
+    def test_clone_does_not_mutate_original(self):
+        original = ToolErrorRecovery()
+        original.record_tool_result("t", json.dumps({"error": "keep"}), json.dumps({"a": 1}))
+
+        clone = original.clone()
+        clone.record_tool_result("t", json.dumps({"error": "fresh"}), json.dumps({"a": 2}))
+
+        # Original keeps its single tracked error untouched
+        assert original.get_error_summary()["t"]["error"] == "keep"
+        assert original.get_error_summary()["t"]["call_count"] == 1
+        assert clone.get_error_summary()["t"]["error"] == "fresh"
+
+
+class TestResetClearsPendingArgs:
+    def test_reset_clears_pending_args(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        tool = Mock()
+        tool.name = "my_tool"
+        recovery.on_tool_start(ctx, tool, json.dumps({"q": "x"}))
+        assert recovery._pending_args  # in-flight
+
+        recovery.reset()
+        assert recovery._pending_args == {}

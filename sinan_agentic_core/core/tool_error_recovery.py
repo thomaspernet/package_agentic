@@ -29,7 +29,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from agents import RunHooks
+from agents import RunContextWrapper, RunHooks, Tool
+
+from .capabilities import Capability
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ class ToolErrorEntry:
     last_args_summary: str = ""
 
 
-class ToolErrorRecovery:
+class ToolErrorRecovery(Capability):
     """Track tool errors and generate recovery guidance for agents.
 
     Detects error patterns (repeated calls, identical arguments) and builds
@@ -90,6 +92,7 @@ class ToolErrorRecovery:
         self._mcp_hints = mcp_hints or {}
         self._errors: dict[str, ToolErrorEntry] = {}  # key: tool_name
         self._last_args: dict[str, str] = {}  # tool_name -> last args_hash
+        self._pending_args: dict[str, str] = {}  # tool_name -> in-flight args
         self.max_identical_before_stop = max_identical_before_stop
 
     # Status values that indicate a tool failure (used by _extract_error).
@@ -228,6 +231,40 @@ class ToolErrorRecovery:
         """Clear all tracked errors. Called at the start of each execution."""
         self._errors.clear()
         self._last_args.clear()
+        self._pending_args.clear()
+
+    def instructions(self, ctx: RunContextWrapper[Any]) -> str | None:
+        """Capability hook — return current recovery guidance, or None when clean."""
+        return self.build_instruction_section() or None
+
+    def on_tool_start(
+        self,
+        ctx: RunContextWrapper[Any],
+        tool: Tool,
+        args: str,
+    ) -> None:
+        """Capability hook — capture tool arguments before execution."""
+        tool_name = getattr(tool, "name", str(tool))
+        self._pending_args[tool_name] = args
+
+    def on_tool_end(
+        self,
+        ctx: RunContextWrapper[Any],
+        tool: Tool,
+        result: str,
+    ) -> None:
+        """Capability hook — record the tool result, tracking any error."""
+        tool_name = getattr(tool, "name", str(tool))
+        arguments = self._pending_args.pop(tool_name, "")
+        self.record_tool_result(tool_name, result, arguments)
+
+    def clone(self) -> "ToolErrorRecovery":
+        """Return a fresh ``ToolErrorRecovery`` with the same configuration and zeroed state."""
+        return ToolErrorRecovery(
+            tool_registry=self._registry,
+            mcp_hints=dict(self._mcp_hints),
+            max_identical_before_stop=self.max_identical_before_stop,
+        )
 
     # ------------------------------------------------------------------ #
     # Instruction section builders (progressive escalation)
@@ -348,7 +385,6 @@ class ToolErrorRecoveryHooks(RunHooks):
     ) -> None:
         self.recovery = recovery
         self.on_event = on_event
-        self._pending_args: dict[str, str] = {}  # tool_name -> arguments
 
     async def on_tool_start(
         self,
@@ -359,12 +395,11 @@ class ToolErrorRecoveryHooks(RunHooks):
         """Capture tool arguments before execution.
 
         The SDK passes a ToolContext (subclass of RunContextWrapper) that
-        has tool_arguments. We store them here for use in on_tool_end.
+        has tool_arguments. We forward them to the Capability so on_tool_end
+        can record errors with the args that triggered them.
         """
-        tool_name = getattr(tool, "name", str(tool))
-        # ToolContext has .tool_arguments (raw JSON string)
         arguments = getattr(context, "tool_arguments", "")
-        self._pending_args[tool_name] = arguments
+        self.recovery.on_tool_start(context, tool, arguments)
 
     async def on_tool_end(
         self,
@@ -374,10 +409,7 @@ class ToolErrorRecoveryHooks(RunHooks):
         result: str,
     ) -> None:
         """Record tool result for error tracking."""
-        tool_name = getattr(tool, "name", str(tool))
-        arguments = self._pending_args.pop(tool_name, "")
-
-        self.recovery.record_tool_result(tool_name, result, arguments)
+        self.recovery.on_tool_end(context, tool, result)
 
         if self.on_event and self.recovery.has_errors:
             self.on_event({
