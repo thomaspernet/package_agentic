@@ -39,40 +39,47 @@ Quick Start:
 
 from .core import BaseAgentRunner, Capability, ToolErrorRecovery, TurnBudget
 from .instructions import InstructionBuilder
-from .session import AgentSession, ConversationHistory, SQLiteSessionStore
+from .llm import (
+    AzureOpenAIProviderConfig,
+    LLMProviderConfig,
+    OpenAIProviderConfig,
+    configure_llm_provider,
+    load_llm_provider_config,
+    parse_llm_provider_config,
+)
 from .models.context import AgentContext
-from .models.outputs import ToolOutput, ChatResponse
+from .models.outputs import ChatResponse, ToolOutput
+from .orchestrator import AgentOrchestrator
 from .registry import (
     AgentCatalog,
+    AgentDefinition,
+    AgentRegistry,
     AgentYamlEntry,
     CapabilityFactory,
     CapabilityNotFoundError,
     CapabilityRef,
     CapabilityRegistry,
-    get_capability_registry,
-    register_capability,
-    load_agent_catalog,
-    AgentDefinition,
-    AgentRegistry,
-    get_agent_registry,
-    register_agent,
-    create_agent_from_registry,
     ToolCatalog,
-    ToolYamlEntry,
-    load_tool_catalog,
     ToolDefinition,
     ToolRegistry,
+    ToolYamlEntry,
+    create_agent_from_registry,
+    get_agent_registry,
+    get_capability_registry,
     get_tool_registry,
+    load_agent_catalog,
+    load_tool_catalog,
+    register_agent,
+    register_capability,
     register_tool,
 )
 from .services import (
     StreamingRunHooks,
     chat,
-    chat_with_hooks,
     chat_streamed,
+    chat_with_hooks,
 )
-
-from .orchestrator import AgentOrchestrator
+from .session import AgentSession, ConversationHistory, SQLiteSessionStore
 from .utils import tool_error, tool_response, unwrap_context
 
 # MCP support (optional — requires 'sinan_agentic_core[mcp]')
@@ -87,6 +94,13 @@ __all__ = [
     "TurnBudget",
     # Instructions
     "InstructionBuilder",
+    # LLM providers
+    "AzureOpenAIProviderConfig",
+    "LLMProviderConfig",
+    "OpenAIProviderConfig",
+    "configure_llm_provider",
+    "load_llm_provider_config",
+    "parse_llm_provider_config",
     # Session
     "AgentSession",
     "ConversationHistory",
