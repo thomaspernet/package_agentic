@@ -1,0 +1,20 @@
+agents:
+  scribe:
+    model: gpt-4o-mini
+    description: Demo agent that writes a few words and stops.
+    tools: []
+    max_turns: 8
+
+    # Built-in shorthand keys — resolved into capability factories on load.
+    turn_budget:
+      default_turns: 5
+      reminder_at: 1
+    error_recovery: true
+
+    # Explicit list — references registered capability names. Built-ins
+    # work here too. Custom capabilities (registered via
+    # @register_capability) are referenced exactly like built-ins.
+    capabilities:
+      - name: audit_log
+        config:
+          label: scribe-run

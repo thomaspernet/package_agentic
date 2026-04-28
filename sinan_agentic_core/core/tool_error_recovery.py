@@ -3,33 +3,30 @@
 When a tool returns an error, agents often retry with identical parameters,
 wasting turns in a loop. ToolErrorRecovery solves this by:
 
-1. Tracking tool errors and the arguments that caused them (via RunHooks)
+1. Tracking tool errors and the arguments that caused them (Capability hooks)
 2. Detecting repeated identical calls (same tool + same args)
 3. Injecting progressive recovery guidance into the agent's instructions
-   before each LLM call (via dynamic instructions)
+   before each LLM call (via Capability.instructions)
 
-This follows the same pattern as TurnBudget:
-- State is tracked via RunHooks (on_tool_start / on_tool_end)
-- Guidance is injected via dynamic instructions (callable)
-- The agent reads the guidance and decides what to do (leverages LLM intelligence)
+ToolErrorRecovery is a Capability — wire it via
+``AgentDefinition.capabilities`` or pass to ``execute()`` directly.
 
 Works for all tool types: custom @function_tool, agent-as-tool, and MCP tools.
 
 Usage:
     recovery = ToolErrorRecovery(tool_registry=registry)
-    hooks = ToolErrorRecoveryHooks(recovery)
-    # Compose with other hooks, wire into dynamic instructions
-    # See BaseAgentRunner for integration details.
+    agent_def = AgentDefinition(..., capabilities=[recovery])
 """
 
 import hashlib
 import json
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
-from agents import RunHooks
+from agents import RunContextWrapper, Tool
+
+from .capabilities import Capability
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +54,7 @@ class ToolErrorEntry:
     last_args_summary: str = ""
 
 
-class ToolErrorRecovery:
+class ToolErrorRecovery(Capability):
     """Track tool errors and generate recovery guidance for agents.
 
     Detects error patterns (repeated calls, identical arguments) and builds
@@ -90,6 +87,7 @@ class ToolErrorRecovery:
         self._mcp_hints = mcp_hints or {}
         self._errors: dict[str, ToolErrorEntry] = {}  # key: tool_name
         self._last_args: dict[str, str] = {}  # tool_name -> last args_hash
+        self._pending_args: dict[str, str] = {}  # tool_name -> in-flight args
         self.max_identical_before_stop = max_identical_before_stop
 
     # Status values that indicate a tool failure (used by _extract_error).
@@ -103,7 +101,7 @@ class ToolErrorRecovery:
     ) -> None:
         """Record a tool result, tracking errors and clearing on success.
 
-        Called from ToolErrorRecoveryHooks.on_tool_end(). Parses the result
+        Called from on_tool_end(). Parses the result
         to detect errors and tracks:
         - Total error count per tool
         - Identical-argument retry count
@@ -228,6 +226,92 @@ class ToolErrorRecovery:
         """Clear all tracked errors. Called at the start of each execution."""
         self._errors.clear()
         self._last_args.clear()
+        self._pending_args.clear()
+
+    def instructions(self, ctx: RunContextWrapper[Any]) -> str | None:
+        """Capability hook — return current recovery guidance, or None when clean."""
+        return self.build_instruction_section() or None
+
+    def on_tool_start(
+        self,
+        ctx: RunContextWrapper[Any],
+        tool: Tool,
+        args: str,
+    ) -> None:
+        """Capability hook — capture tool arguments before execution."""
+        tool_name = getattr(tool, "name", str(tool))
+        self._pending_args[tool_name] = args
+
+    def on_tool_end(
+        self,
+        ctx: RunContextWrapper[Any],
+        tool: Tool,
+        result: str,
+    ) -> None:
+        """Capability hook — record the tool result and emit any recovery event."""
+        tool_name = getattr(tool, "name", str(tool))
+        arguments = self._pending_args.pop(tool_name, "")
+        self.record_tool_result(tool_name, result, arguments)
+        if self.on_event and self.has_errors:
+            self.on_event({
+                "event": "tool_error_recovery",
+                "data": self.get_error_summary(),
+            })
+
+    def clone(self) -> "ToolErrorRecovery":
+        """Return a fresh ``ToolErrorRecovery`` with the same configuration and zeroed state."""
+        return ToolErrorRecovery(
+            tool_registry=self._registry,
+            mcp_hints=dict(self._mcp_hints),
+            max_identical_before_stop=self.max_identical_before_stop,
+        )
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """Serialize tracked errors and last-args map so retries survive restarts."""
+        return {
+            "errors": {
+                name: {
+                    "tool_name": entry.tool_name,
+                    "error": entry.error,
+                    "args_hash": entry.args_hash,
+                    "call_count": entry.call_count,
+                    "identical_count": entry.identical_count,
+                    "recovery_hint": entry.recovery_hint,
+                    "last_args_summary": entry.last_args_summary,
+                }
+                for name, entry in self._errors.items()
+            },
+            "last_args": dict(self._last_args),
+        }
+
+    def from_snapshot(self, data: dict[str, Any]) -> None:
+        """Restore tracked errors from a previous snapshot.
+
+        ``_pending_args`` is intentionally left empty: it tracks in-flight
+        tool calls that did not survive the process boundary.
+        """
+        raw_errors = data.get("errors", {})
+        self._errors = {}
+        if isinstance(raw_errors, dict):
+            for name, payload in raw_errors.items():
+                if not isinstance(payload, dict):
+                    continue
+                self._errors[str(name)] = ToolErrorEntry(
+                    tool_name=str(payload.get("tool_name", name)),
+                    error=str(payload.get("error", "")),
+                    args_hash=str(payload.get("args_hash", "")),
+                    call_count=int(payload.get("call_count", 1)),
+                    identical_count=int(payload.get("identical_count", 1)),
+                    recovery_hint=str(payload.get("recovery_hint", "")),
+                    last_args_summary=str(payload.get("last_args_summary", "")),
+                )
+        raw_last = data.get("last_args", {})
+        self._last_args = (
+            {str(k): str(v) for k, v in raw_last.items()}
+            if isinstance(raw_last, dict)
+            else {}
+        )
+        self._pending_args = {}
 
     # ------------------------------------------------------------------ #
     # Instruction section builders (progressive escalation)
@@ -330,57 +414,3 @@ class ToolErrorRecovery:
             return arguments[:80]
 
 
-class ToolErrorRecoveryHooks(RunHooks):
-    """RunHooks subclass that tracks tool errors via on_tool_end.
-
-    Captures tool name, arguments, and result after each tool call.
-    The ToolErrorRecovery instance analyzes the result and tracks errors.
-    Dynamic instructions read recovery.build_instruction_section() to
-    inject guidance before the next LLM call.
-
-    Optionally accepts an on_event callback for streaming error events.
-    """
-
-    def __init__(
-        self,
-        recovery: ToolErrorRecovery,
-        on_event: Optional[Callable] = None,
-    ) -> None:
-        self.recovery = recovery
-        self.on_event = on_event
-        self._pending_args: dict[str, str] = {}  # tool_name -> arguments
-
-    async def on_tool_start(
-        self,
-        context: Any,
-        agent: Any,
-        tool: Any,
-    ) -> None:
-        """Capture tool arguments before execution.
-
-        The SDK passes a ToolContext (subclass of RunContextWrapper) that
-        has tool_arguments. We store them here for use in on_tool_end.
-        """
-        tool_name = getattr(tool, "name", str(tool))
-        # ToolContext has .tool_arguments (raw JSON string)
-        arguments = getattr(context, "tool_arguments", "")
-        self._pending_args[tool_name] = arguments
-
-    async def on_tool_end(
-        self,
-        context: Any,
-        agent: Any,
-        tool: Any,
-        result: str,
-    ) -> None:
-        """Record tool result for error tracking."""
-        tool_name = getattr(tool, "name", str(tool))
-        arguments = self._pending_args.pop(tool_name, "")
-
-        self.recovery.record_tool_result(tool_name, result, arguments)
-
-        if self.on_event and self.recovery.has_errors:
-            self.on_event({
-                "event": "tool_error_recovery",
-                "data": self.recovery.get_error_summary(),
-            })

@@ -17,9 +17,10 @@ from ..session import AgentSession
 from ..models.context import AgentContext
 from ..models import outputs as output_models
 from ..registry import get_agent_registry, get_tool_registry, get_guardrail_registry
+from .capabilities import Capability
 from .errors import structured_tool_error
-from .tool_error_recovery import ToolErrorRecovery, ToolErrorRecoveryHooks
-from .turn_budget import TurnBudget, TurnBudgetHooks
+from .tool_error_recovery import ToolErrorRecovery
+from .turn_budget import TurnBudget
 from .turn_budget_tool import request_extension_tool
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class BaseAgentRunner:
         context: Any,
         model_override: Optional[str] = None,
         model_settings_override: Optional["ModelSettings"] = None,
+        capabilities: Optional[List[Capability]] = None,
     ) -> Agent:
         """Create an agent instance with proper tools and configuration.
 
@@ -102,6 +104,8 @@ class BaseAgentRunner:
             context: Context for dynamic instruction generation
             model_override: If set, replaces the agent definition's model.
             model_settings_override: If set, replaces the computed model settings.
+            capabilities: Cloned per-run capabilities to expose tools from.
+                If None, falls back to ``agent_def.capabilities`` (no clone).
 
         Returns:
             Configured Agent instance
@@ -116,6 +120,8 @@ class BaseAgentRunner:
         agent_tools = await self._build_tools(agent_def.tools, context)
         hosted = self._build_hosted_tools(agent_def.hosted_tools)
         agent_tools.extend(hosted)
+        for cap in capabilities or agent_def.capabilities:
+            agent_tools.extend(cap.tools())
         agent_guardrails = self._build_guardrails(agent_def.guardrails)
         handoffs = await self._build_handoffs(agent_def.handoffs, context)
         output_type = self._resolve_output_type(agent_def.output_dataclass)
@@ -172,10 +178,13 @@ class BaseAgentRunner:
     ) -> Any:
         """Run an agent and return its final_output directly.
 
-        Single entry point for all agent execution. Three modes controlled by flags:
-        - Basic (default): Runner.run() -> final_output
-        - Fallback: Runner.run() with overflow recovery -> final_output
-        - Streaming: Runner.run_streamed() with event callbacks -> final_output
+        Capabilities flow through one pipeline. Three sources are merged:
+        1. ``agent_def.capabilities`` (declarative; cloned per run)
+        2. ``turn_budget=`` kwarg (runtime; used in place)
+        3. ``error_recovery=`` kwarg (runtime; used in place)
+
+        All effective capabilities have ``reset()`` called at the start of
+        the run; cloned ones are isolated from their declarative templates.
 
         Args:
             agent_name: Name of registered agent to run
@@ -190,36 +199,42 @@ class BaseAgentRunner:
                 prompt. If None, uses a default builder that concatenates tool outputs.
             max_turns: Maximum agent turns before stopping
             input_text: Input message for the agent (added to session automatically)
-            turn_budget: Optional soft turn budget with self-extension. When provided,
-                the SDK's max_turns is set to budget.absolute_max (hard ceiling) and
-                the agent perceives budget.effective_max (soft limit) via dynamic
-                instructions. The agent can call request_extension() to get more turns.
-            error_recovery: Optional tool error recovery. When provided, tool errors
-                are tracked and progressive recovery guidance is injected into the
-                agent's instructions before each LLM call. Pass True to auto-create
-                with defaults.
+            turn_budget: Optional soft turn budget. Can also be supplied via
+                ``AgentDefinition.capabilities``.
+            error_recovery: Optional tool error recovery. Pass True to auto-create
+                with defaults. Can also be supplied via
+                ``AgentDefinition.capabilities``.
 
         Returns:
             Agent's final_output (dataclass, dict, or string)
         """
-        # When turn budget is active, override max_turns with absolute ceiling
-        sdk_max_turns = turn_budget.absolute_max if turn_budget else max_turns
-
-        if turn_budget:
-            turn_budget.reset()
-            context._turn_budget = turn_budget
+        agent_def = self._get_agent_definition(agent_name)
 
         # Auto-create error recovery if True was passed
         if error_recovery is True:
             error_recovery = ToolErrorRecovery(tool_registry=self.tool_registry)
-        if error_recovery:
-            error_recovery.reset()
+
+        capabilities = self._build_run_capabilities(
+            agent_def=agent_def,
+            turn_budget=turn_budget,
+            error_recovery=error_recovery,
+            on_event=on_event,
+        )
+
+        # Determine SDK max_turns: hardest TurnBudget ceiling wins, else max_turns kwarg.
+        sdk_max_turns = max_turns
+        for cap in capabilities:
+            if isinstance(cap, TurnBudget):
+                sdk_max_turns = cap.absolute_max
+                # Wire the budget so InstructionBuilder.turn_budget_section
+                # and the request_extension tool can locate it.
+                context._turn_budget = cap
+                break
 
         if streaming:
             return await self._execute_streamed(
                 agent_name, context, session, on_event, sdk_max_turns, input_text,
-                turn_budget=turn_budget,
-                error_recovery=error_recovery,
+                capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
             )
@@ -227,14 +242,14 @@ class BaseAgentRunner:
             return await self._execute_with_fallback(
                 agent_name, context, session, sdk_max_turns, input_text,
                 fallback_prompt_builder,
+                capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
             )
         else:
             return await self._execute_basic(
                 agent_name, context, session, sdk_max_turns, input_text,
-                turn_budget=turn_budget,
-                error_recovery=error_recovery,
+                capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
             )
@@ -246,22 +261,20 @@ class BaseAgentRunner:
         session: AgentSession,
         max_turns: int,
         input_text: str,
-        turn_budget: Optional[TurnBudget] = None,
-        error_recovery: Optional[ToolErrorRecovery] = None,
+        capabilities: Optional[List[Capability]] = None,
         model_override: Optional[str] = None,
         model_settings_override: Optional["ModelSettings"] = None,
     ) -> Any:
         """Run agent via Runner.run() and return final_output."""
+        capabilities = capabilities or []
         agent = await self.create_agent(
             agent_name=agent_name, context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
+            capabilities=capabilities,
         )
 
-        if turn_budget:
-            agent.tools.append(request_extension_tool)
-
-        self._apply_dynamic_instructions(agent, turn_budget, error_recovery)
+        self._apply_dynamic_instructions(agent, capabilities)
 
         logger.info(f"Running agent: {agent_name}")
 
@@ -273,7 +286,7 @@ class BaseAgentRunner:
             "max_turns": max_turns,
         }
 
-        hooks = self._build_hooks(turn_budget, error_recovery)
+        hooks = self._build_hooks(capabilities)
         if hooks:
             run_kwargs["hooks"] = hooks
 
@@ -291,6 +304,7 @@ class BaseAgentRunner:
         max_turns: int,
         input_text: str,
         fallback_prompt_builder: Optional[Callable],
+        capabilities: Optional[List[Capability]] = None,
         model_override: Optional[str] = None,
         model_settings_override: Optional["ModelSettings"] = None,
     ) -> Any:
@@ -299,11 +313,13 @@ class BaseAgentRunner:
         If the agent hits max_turns or context_length_exceeded, collects
         all gathered tool outputs and makes a single condensed LLM call.
         """
+        capabilities = capabilities or []
         agent_def = self._get_agent_definition(agent_name)
         agent = await self.create_agent(
             agent_name=agent_name, context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
+            capabilities=capabilities,
         )
 
         collecting = _CollectingSessionWrapper(session)
@@ -413,8 +429,7 @@ class BaseAgentRunner:
         on_event: Optional[Callable],
         max_turns: int,
         input_text: str,
-        turn_budget: Optional[TurnBudget] = None,
-        error_recovery: Optional[ToolErrorRecovery] = None,
+        capabilities: Optional[List[Capability]] = None,
         model_override: Optional[str] = None,
         model_settings_override: Optional["ModelSettings"] = None,
     ) -> Any:
@@ -423,16 +438,15 @@ class BaseAgentRunner:
         Adds user message to session, streams events via on_event callback,
         and returns final_output.
         """
+        capabilities = capabilities or []
         agent = await self.create_agent(
             agent_name=agent_name, context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
+            capabilities=capabilities,
         )
 
-        if turn_budget:
-            agent.tools.append(request_extension_tool)
-
-        self._apply_dynamic_instructions(agent, turn_budget, error_recovery)
+        self._apply_dynamic_instructions(agent, capabilities)
 
         if input_text:
             await session.add_items([{"role": "user", "content": input_text}])
@@ -447,7 +461,7 @@ class BaseAgentRunner:
             "max_turns": max_turns,
         }
 
-        hooks = self._build_hooks(turn_budget, error_recovery, on_event=on_event)
+        hooks = self._build_hooks(capabilities)
         if hooks:
             run_kwargs["hooks"] = hooks
 
@@ -685,9 +699,10 @@ class BaseAgentRunner:
                 budget = agent_def.as_tool_turn_budget
                 if budget:
                     budget.reset()
-                    self._make_instructions_dynamic(tool_agent, budget)
+                    sub_caps: List[Capability] = [budget]
+                    self._apply_dynamic_instructions(tool_agent, sub_caps)
                     tool_agent.tools.append(request_extension_tool)
-                    as_tool_kwargs["hooks"] = TurnBudgetHooks(budget)
+                    as_tool_kwargs["hooks"] = _CompositeHooks(sub_caps)
                     as_tool_kwargs["max_turns"] = budget.absolute_max
                 elif agent_def.as_tool_max_turns is not None:
                     as_tool_kwargs["max_turns"] = agent_def.as_tool_max_turns
@@ -854,24 +869,51 @@ class BaseAgentRunner:
         return agent_kwargs
 
     # ------------------------------------------------------------------ #
-    # Dynamic instructions and hooks composition
+    # Capability composition
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _build_run_capabilities(
+        agent_def: Any,
+        turn_budget: Optional[TurnBudget],
+        error_recovery: Optional[ToolErrorRecovery],
+        on_event: Optional[Callable],
+    ) -> List[Capability]:
+        """Compose the effective capability list for one ``execute()`` call.
+
+        Declarative capabilities (``agent_def.capabilities``) are cloned for
+        per-run isolation. Runtime kwargs are used in place so callers can
+        inspect their state after the run. Every effective capability is
+        reset and gets ``on_event`` wired through.
+        """
+        effective: List[Capability] = []
+
+        for cap in agent_def.capabilities:
+            clone = cap.clone()
+            effective.append(clone)
+
+        if turn_budget is not None:
+            effective.append(turn_budget)
+        if error_recovery is not None:
+            effective.append(error_recovery)
+
+        for cap in effective:
+            cap.reset()
+            cap.on_event = on_event
+
+        return effective
 
     @staticmethod
     def _apply_dynamic_instructions(
         agent: Agent,
-        budget: Optional[TurnBudget] = None,
-        recovery: Optional[ToolErrorRecovery] = None,
+        capabilities: List[Capability],
     ) -> None:
-        """Replace static instructions with a callable that appends dynamic sections.
+        """Wrap agent.instructions to merge in capability fragments per turn.
 
         The SDK evaluates callable instructions before each LLM call, so
-        budget and error recovery sections update dynamically.
-
-        Composes all active dynamic sections (turn budget, error recovery)
-        into a single callable.
+        capability sections update dynamically as state evolves.
         """
-        if not budget and not recovery:
+        if not capabilities:
             return
 
         base_instructions = agent.instructions
@@ -881,49 +923,25 @@ class BaseAgentRunner:
 
             def dynamic_instructions(ctx_wrapper, agent_obj):
                 base = original_fn(ctx_wrapper, agent_obj)
-                return _append_dynamic_sections(base, budget, recovery)
+                return _merge_capability_instructions(base, ctx_wrapper, capabilities)
 
             agent.instructions = dynamic_instructions
         else:
             static_text = base_instructions or ""
 
             def dynamic_from_static(ctx_wrapper, agent_obj):
-                return _append_dynamic_sections(static_text, budget, recovery)
+                return _merge_capability_instructions(static_text, ctx_wrapper, capabilities)
 
             agent.instructions = dynamic_from_static
 
     @staticmethod
-    def _make_instructions_dynamic(agent: Agent, budget: TurnBudget) -> None:
-        """Replace static instructions with a callable that appends budget status.
-
-        .. deprecated::
-            Use _apply_dynamic_instructions() for new code. This method is
-            kept for backward compatibility (agent-as-tool budget wiring).
-        """
-        BaseAgentRunner._apply_dynamic_instructions(agent, budget=budget)
-
-    @staticmethod
     def _build_hooks(
-        budget: Optional[TurnBudget] = None,
-        recovery: Optional[ToolErrorRecovery] = None,
-        on_event: Optional[Callable] = None,
+        capabilities: List[Capability],
     ) -> Optional[RunHooks]:
-        """Build a composite RunHooks from active features.
-
-        Returns None if no features are active, a single hooks instance
-        if only one is active, or a _CompositeHooks if multiple are.
-        """
-        hooks_list: list[RunHooks] = []
-        if budget:
-            hooks_list.append(TurnBudgetHooks(budget, on_event=on_event))
-        if recovery:
-            hooks_list.append(ToolErrorRecoveryHooks(recovery, on_event=on_event))
-
-        if not hooks_list:
+        """Wrap capabilities in a single RunHooks adapter, or None when empty."""
+        if not capabilities:
             return None
-        if len(hooks_list) == 1:
-            return hooks_list[0]
-        return _CompositeHooks(hooks_list)
+        return _CompositeHooks(capabilities)
 
     # ------------------------------------------------------------------ #
     # Fallback prompt builder
@@ -1016,58 +1034,57 @@ class _CollectingSessionWrapper:
 # ------------------------------------------------------------------ #
 
 
-def _append_dynamic_sections(
+def _merge_capability_instructions(
     base: str,
-    budget: Optional[TurnBudget],
-    recovery: Optional[ToolErrorRecovery],
+    ctx_wrapper: RunContextWrapper,
+    capabilities: List[Capability],
 ) -> str:
-    """Append active dynamic sections to base instructions."""
+    """Append each capability's current instruction fragment to base."""
     parts = [base]
-    if budget:
-        section = budget.build_instruction_section()
-        if section:
-            parts.append(section)
-    if recovery:
-        section = recovery.build_instruction_section()
-        if section:
-            parts.append(section)
+    for cap in capabilities:
+        fragment = cap.instructions(ctx_wrapper)
+        if fragment:
+            parts.append(fragment)
     return "\n\n".join(parts)
 
 
 class _CompositeHooks(RunHooks):
-    """Compose multiple RunHooks into a single instance.
+    """Adapt a list of capabilities into a single SDK ``RunHooks`` instance.
 
-    The SDK accepts one hooks object per run. This class delegates each
-    lifecycle event to all wrapped hooks in order.
+    Each SDK lifecycle event is dispatched in registration order to every
+    capability's matching method. ``on_tool_start`` extracts ``tool_arguments``
+    from the SDK's ``ToolContext`` so the abstracted Capability signature
+    receives them directly.
     """
 
-    def __init__(self, hooks: List[RunHooks]) -> None:
-        self._hooks = hooks
+    def __init__(self, capabilities: List[Capability]) -> None:
+        self._capabilities = capabilities
 
     async def on_agent_start(self, context, agent):
-        for h in self._hooks:
-            await h.on_agent_start(context, agent)
+        for cap in self._capabilities:
+            cap.on_agent_start(context, agent)
 
     async def on_agent_end(self, context, agent, output):
-        for h in self._hooks:
-            await h.on_agent_end(context, agent, output)
+        for cap in self._capabilities:
+            cap.on_agent_end(context, agent, output)
 
     async def on_handoff(self, context, from_agent, to_agent):
-        for h in self._hooks:
-            await h.on_handoff(context, from_agent, to_agent)
+        for cap in self._capabilities:
+            cap.on_handoff(context, from_agent, to_agent)
 
     async def on_tool_start(self, context, agent, tool):
-        for h in self._hooks:
-            await h.on_tool_start(context, agent, tool)
+        args = getattr(context, "tool_arguments", "")
+        for cap in self._capabilities:
+            cap.on_tool_start(context, tool, args)
 
     async def on_tool_end(self, context, agent, tool, result):
-        for h in self._hooks:
-            await h.on_tool_end(context, agent, tool, result)
+        for cap in self._capabilities:
+            cap.on_tool_end(context, tool, result)
 
     async def on_llm_start(self, context, agent, system_prompt, input_items):
-        for h in self._hooks:
-            await h.on_llm_start(context, agent, system_prompt, input_items)
+        for cap in self._capabilities:
+            cap.on_llm_start(context, agent, system_prompt, input_items)
 
     async def on_llm_end(self, context, agent, response):
-        for h in self._hooks:
-            await h.on_llm_end(context, agent, response)
+        for cap in self._capabilities:
+            cap.on_llm_end(context, agent, response)
