@@ -34,6 +34,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from ..core.capabilities import Capability
+from .capability_registry import (
+    CapabilityNotFoundError,
+    get_capability_registry,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +57,21 @@ class TurnBudgetConfig(BaseModel):
     extension_size: int = 5
 
 
+class CapabilityRef(BaseModel):
+    """Reference to a registered capability with optional config.
+
+    Parsed from the explicit ``capabilities:`` list in ``agents.yaml``::
+
+        capabilities:
+          - name: turn_budget
+            config: { default_turns: 10 }
+          - name: my_custom_capability
+    """
+
+    name: str
+    config: dict[str, Any] = {}
+
+
 class AgentYamlEntry(BaseModel):
     """Resolved agent entry — tools are plain strings."""
 
@@ -61,6 +82,7 @@ class AgentYamlEntry(BaseModel):
     max_turns: int | None = None
     turn_budget: TurnBudgetConfig | None = None
     error_recovery: bool = True
+    capabilities: list[CapabilityRef] = []
     effort: str | None = None
     tool_rules: dict[str, dict[str, Any]] = {}
 
@@ -86,6 +108,30 @@ class AgentYamlEntry(BaseModel):
         from ..registry import get_tool_registry
 
         return ToolErrorRecovery(tool_registry=get_tool_registry())
+
+    def build_capabilities(self) -> list[Capability]:
+        """Build all capabilities for this agent from YAML.
+
+        Combines the built-in shorthand keys (``turn_budget``,
+        ``error_recovery``) with any entries from the explicit
+        ``capabilities:`` list, in that order. The list form goes through
+        :class:`CapabilityRegistry` so user-registered capabilities work
+        identically to built-ins.
+        """
+        built: list[Capability] = []
+
+        budget = self.build_turn_budget()
+        if budget is not None:
+            built.append(budget)
+
+        recovery = self.build_error_recovery()
+        if recovery is not None:
+            built.append(recovery)
+
+        registry = get_capability_registry()
+        for ref in self.capabilities:
+            built.append(registry.build(ref.name, ref.config))
+        return built
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +200,59 @@ def _resolve_tools(
 
 
 # ---------------------------------------------------------------------------
+# Capability resolution
+# ---------------------------------------------------------------------------
+
+
+def _parse_capabilities(
+    agent_name: str, raw: Any
+) -> list[CapabilityRef]:
+    """Parse the ``capabilities:`` list on an agent entry and validate names.
+
+    Accepts the explicit list form documented on :class:`CapabilityRef`.
+    Each entry must be either a string (name only) or a mapping with a
+    ``name`` key and optional ``config`` mapping. Unknown capability names
+    raise :class:`CapabilityNotFoundError`.
+    """
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise TypeError(
+            f"Agent '{agent_name}' has invalid 'capabilities' — "
+            f"expected a list, got {type(raw).__name__}."
+        )
+
+    registry = get_capability_registry()
+    refs: list[CapabilityRef] = []
+    for index, item in enumerate(raw):
+        if isinstance(item, str):
+            ref = CapabilityRef(name=item)
+        elif isinstance(item, dict):
+            if "name" not in item:
+                raise ValueError(
+                    f"Agent '{agent_name}' capabilities[{index}] is missing "
+                    f"the required 'name' key."
+                )
+            ref = CapabilityRef(
+                name=item["name"], config=item.get("config", {}) or {}
+            )
+        else:
+            raise TypeError(
+                f"Agent '{agent_name}' capabilities[{index}] must be a "
+                f"string or mapping, got {type(item).__name__}."
+            )
+
+        if not registry.is_registered(ref.name):
+            available = ", ".join(registry.list_names()) or "<none>"
+            raise CapabilityNotFoundError(
+                f"Agent '{agent_name}' references unknown capability "
+                f"'{ref.name}'. Available: {available}"
+            )
+        refs.append(ref)
+    return refs
+
+
+# ---------------------------------------------------------------------------
 # Catalog
 # ---------------------------------------------------------------------------
 
@@ -200,6 +299,8 @@ class AgentCatalog:
         raw_budget = raw.get("turn_budget")
         budget_cfg = TurnBudgetConfig(**raw_budget) if raw_budget else None
 
+        capabilities = _parse_capabilities(name, raw.get("capabilities", []))
+
         return AgentYamlEntry(
             model=raw["model"],
             description=raw["description"],
@@ -212,6 +313,7 @@ class AgentCatalog:
             max_turns=raw.get("max_turns"),
             turn_budget=budget_cfg,
             error_recovery=raw.get("error_recovery", True),
+            capabilities=capabilities,
             tool_rules=raw.get("tool_rules", {}),
             effort=raw.get("effort"),
         )
