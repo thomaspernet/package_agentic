@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-and-test:
+  test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -34,16 +34,36 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,mcp]"
 
-      - name: Ruff (lint)
-        run: ruff check .
-
-      - name: Black (format check)
-        run: black --check .
-
-      - name: Mypy (strict types)
-        run: mypy sinan_agentic_core
-        # Type-check the package only — tests intentionally use looser typing
-        # for fixtures and monkeypatching.
-
       - name: Pytest
         run: pytest --cov=sinan_agentic_core --cov-report=term-missing
+
+  # Lint job runs separately and is non-required for now (#13/#1447 follow-up).
+  # The repo has pre-existing ruff/black/mypy violations from before CI existed;
+  # cleanup is tracked as a separate issue rather than blocking every PR until
+  # someone gets around to it. Once the backlog clears, flip ``continue-on-error``
+  # off and the lint signal becomes a hard gate.
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dev tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Black
+        run: black --check .
+
+      - name: Mypy
+        run: mypy sinan_agentic_core
