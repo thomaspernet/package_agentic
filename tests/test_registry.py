@@ -18,7 +18,7 @@ class TestAgentDefinition:
         assert a.tools == []
 
     def test_missing_instructions_raises(self):
-        with pytest.raises(ValueError, match="must have either instructions"):
+        with pytest.raises(ValueError, match="must have instructions"):
             AgentDefinition(name="bad", description="d")
 
     def test_callable_instructions(self):

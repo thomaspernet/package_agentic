@@ -37,7 +37,7 @@ Quick Start:
     )
 """
 
-from .core import BaseAgentRunner, ToolErrorRecovery, ToolErrorRecoveryHooks, TurnBudget, TurnBudgetHooks
+from .core import BaseAgentRunner, Capability, ToolErrorRecovery, TurnBudget
 from .instructions import InstructionBuilder
 from .session import AgentSession, ConversationHistory, SQLiteSessionStore
 from .models.context import AgentContext
@@ -45,6 +45,12 @@ from .models.outputs import ToolOutput, ChatResponse
 from .registry import (
     AgentCatalog,
     AgentYamlEntry,
+    CapabilityFactory,
+    CapabilityNotFoundError,
+    CapabilityRef,
+    CapabilityRegistry,
+    get_capability_registry,
+    register_capability,
     load_agent_catalog,
     AgentDefinition,
     AgentRegistry,
@@ -76,10 +82,9 @@ from .utils import tool_error, tool_response, unwrap_context
 __all__ = [
     # Core
     "BaseAgentRunner",
+    "Capability",
     "ToolErrorRecovery",
-    "ToolErrorRecoveryHooks",
     "TurnBudget",
-    "TurnBudgetHooks",
     # Instructions
     "InstructionBuilder",
     # Session
@@ -93,6 +98,12 @@ __all__ = [
     # Registry
     "AgentCatalog",
     "AgentYamlEntry",
+    "CapabilityFactory",
+    "CapabilityNotFoundError",
+    "CapabilityRef",
+    "CapabilityRegistry",
+    "get_capability_registry",
+    "register_capability",
     "load_agent_catalog",
     "AgentDefinition",
     "AgentRegistry",

@@ -24,6 +24,7 @@ A framework for building AI agents using the OpenAI Agents SDK. Fork this reposi
 - **Tool Catalog** - Load tool metadata (description, category, recovery hints) from a YAML file
 - **Knowledge Store** - Inject domain knowledge from YAML files into agent system prompts
 - **Structured Agent-as-Tool** - Typed input schemas and structured error handling for sub-agent calls
+- **Capabilities** - Pluggable agent behaviors (turn budgets, error recovery, custom hooks) - write a `Capability` subclass and attach it to an `AgentDefinition`. See [`documentation/project/capabilities.md`](documentation/project/capabilities.md).
 - **MCP Server** - Expose registered tools as an MCP server (stdio or HTTP) with zero description duplication - all metadata comes from `tools.yaml`
 
 ## Installation
@@ -673,6 +674,38 @@ This is handled by `structured_tool_error()`, which is automatically wired into 
 
 No manual wiring needed - just set `as_tool_parameters` on your `AgentDefinition`.
 
+## Extending sinan-agentic — Custom Capabilities
+
+`Capability` is the extension point for cross-cutting agent behavior. Write a subclass, attach it to an `AgentDefinition`, and the runtime calls its lifecycle hooks (and merges its instruction fragments into the system prompt) for every run. Both `TurnBudget` and `ToolErrorRecovery` are themselves `Capability` subclasses - see them for reference.
+
+```python
+from agents import RunContextWrapper, Tool
+from sinan_agentic_core import Capability, AgentDefinition, register_agent
+
+
+class ToolCallLogger(Capability):
+    """Print every tool call - useful as a debugging aid."""
+
+    def on_tool_start(self, ctx: RunContextWrapper, tool: Tool, args: str) -> None:
+        print(f"[tool] -> {tool.name}({args})")
+
+    def on_tool_end(self, ctx: RunContextWrapper, tool: Tool, result: str) -> None:
+        print(f"[tool] <- {tool.name}: {result[:120]}")
+
+
+register_agent(AgentDefinition(
+    name="time_assistant",
+    description="Tells the time",
+    instructions="You are a helpful assistant.",
+    tools=["get_current_time"],
+    capabilities=[ToolCallLogger()],
+))
+```
+
+The runner clones each declared capability per run (so concurrent runs are isolated), calls `reset()` on the clones, then composes them into a single `RunHooks` adapter. Override only the hook methods you care about - everything else is a no-op by default.
+
+For the full lifecycle reference, the protocol surface, and migration notes for existing direct-Python and YAML users, see [`documentation/project/capabilities.md`](documentation/project/capabilities.md). For a runnable end-to-end example, see [`examples/custom_capability.py`](examples/custom_capability.py).
+
 ## Tool Error Recovery
 
 When a tool returns an error, agents often retry with identical parameters, wasting turns in a loop. `ToolErrorRecovery` solves this by tracking tool errors and injecting progressive recovery guidance into the agent's instructions - the same dynamic-instructions pattern used by `TurnBudget`.
@@ -983,10 +1016,14 @@ sinan_agentic_core/
 ├── __init__.py              # Main exports
 ├── orchestrator.py          # Multi-agent orchestration
 ├── core/
-│   ├── base_runner.py       # BaseAgentRunner
-│   ├── errors.py            # structured_tool_error for agent-as-tool failures
-│   ├── turn_budget.py       # TurnBudget + TurnBudgetHooks (soft turn management)
-│   └── turn_budget_tool.py  # request_extension tool (agent self-approval)
+│   ├── base_runner.py            # BaseAgentRunner
+│   ├── capabilities/             # Capability protocol (pluggable agent behaviors)
+│   │   ├── __init__.py
+│   │   └── base.py               # Capability base class + lifecycle hooks
+│   ├── errors.py                 # structured_tool_error for agent-as-tool failures
+│   ├── tool_error_recovery.py    # ToolErrorRecovery capability
+│   ├── turn_budget.py            # TurnBudget capability + TurnBudgetHooks
+│   └── turn_budget_tool.py       # request_extension tool (agent self-approval)
 ├── instructions/
 │   └── builder.py           # InstructionBuilder base class
 ├── mcp/                        # MCP server support (optional, requires sinan-agentic-core[mcp])
@@ -996,11 +1033,12 @@ sinan_agentic_core/
 │   ├── tool_adapter.py         # Wraps registered tools for MCP invocation
 │   └── yaml_schema.py          # Pydantic models for MCP YAML config
 ├── registry/
-│   ├── agent_catalog.py     # YAML-driven agent catalog + MCP server definitions
-│   ├── agent_registry.py    # AgentDefinition + registry
-│   ├── agent_factory.py     # create_agent_from_registry()
-│   ├── tool_catalog.py      # YAML-driven tool catalog + MCP exposure flags
-│   ├── tool_registry.py     # ToolDefinition + registry
+│   ├── agent_catalog.py        # YAML-driven agent catalog + MCP server definitions
+│   ├── agent_registry.py       # AgentDefinition + registry
+│   ├── agent_factory.py        # create_agent_from_registry()
+│   ├── capability_registry.py  # @register_capability + named capability factories
+│   ├── tool_catalog.py         # YAML-driven tool catalog + MCP exposure flags
+│   ├── tool_registry.py        # ToolDefinition + registry
 │   └── guardrail_registry.py
 ├── services/
 │   ├── chat.py              # chat(), chat_with_hooks(), chat_streamed()
