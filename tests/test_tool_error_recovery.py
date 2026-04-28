@@ -4,11 +4,12 @@ import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agents import RunContextWrapper
 
+from sinan_agentic_core.core.capabilities import Capability
 from sinan_agentic_core.core.tool_error_recovery import (
     ToolErrorEntry,
     ToolErrorRecovery,
-    ToolErrorRecoveryHooks,
 )
 
 
@@ -324,81 +325,66 @@ class TestArgsHashing:
 
 
 # ------------------------------------------------------------------ #
-# ToolErrorRecoveryHooks
+# ToolErrorRecovery — capability lifecycle hooks
 # ------------------------------------------------------------------ #
 
 
-class TestToolErrorRecoveryHooks:
-    @pytest.mark.asyncio
-    async def test_on_tool_end_records_result(self):
+class TestToolErrorRecoveryLifecycle:
+    def test_on_tool_end_records_result(self):
         recovery = ToolErrorRecovery()
-        hooks = ToolErrorRecoveryHooks(recovery)
 
         tool = Mock()
         tool.name = "my_tool"
 
-        # Simulate on_tool_start to capture args
         ctx = Mock()
-        ctx.tool_arguments = json.dumps({"mode": "check"})
-        await hooks.on_tool_start(ctx, Mock(), tool)
-
-        # Simulate on_tool_end with error
-        await hooks.on_tool_end(ctx, Mock(), tool, json.dumps({"error": "fail"}))
+        recovery.on_tool_start(ctx, tool, json.dumps({"mode": "check"}))
+        recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
 
         assert recovery.has_errors
         summary = recovery.get_error_summary()
         assert summary["my_tool"]["error"] == "fail"
 
-    @pytest.mark.asyncio
-    async def test_on_tool_end_success_clears_error(self):
+    def test_on_tool_end_success_clears_error(self):
         recovery = ToolErrorRecovery()
-        hooks = ToolErrorRecoveryHooks(recovery)
 
         tool = Mock()
         tool.name = "my_tool"
         ctx = Mock()
-        ctx.tool_arguments = "{}"
 
-        # Error first
-        await hooks.on_tool_start(ctx, Mock(), tool)
-        await hooks.on_tool_end(ctx, Mock(), tool, json.dumps({"error": "fail"}))
+        recovery.on_tool_start(ctx, tool, "{}")
+        recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
         assert recovery.has_errors
 
-        # Then success
-        await hooks.on_tool_start(ctx, Mock(), tool)
-        await hooks.on_tool_end(ctx, Mock(), tool, json.dumps({"result": "ok"}))
+        recovery.on_tool_start(ctx, tool, "{}")
+        recovery.on_tool_end(ctx, tool, json.dumps({"result": "ok"}))
         assert not recovery.has_errors
 
-    @pytest.mark.asyncio
-    async def test_on_event_emitted_on_error(self):
+    def test_on_event_emitted_on_error(self):
         recovery = ToolErrorRecovery()
-        events = []
-        hooks = ToolErrorRecoveryHooks(recovery, on_event=events.append)
+        events: list[dict] = []
+        recovery.on_event = events.append
 
         tool = Mock()
         tool.name = "my_tool"
         ctx = Mock()
-        ctx.tool_arguments = "{}"
 
-        await hooks.on_tool_start(ctx, Mock(), tool)
-        await hooks.on_tool_end(ctx, Mock(), tool, json.dumps({"error": "fail"}))
+        recovery.on_tool_start(ctx, tool, "{}")
+        recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
 
         assert len(events) == 1
         assert events[0]["event"] == "tool_error_recovery"
 
-    @pytest.mark.asyncio
-    async def test_no_event_on_success(self):
+    def test_no_event_on_success(self):
         recovery = ToolErrorRecovery()
-        events = []
-        hooks = ToolErrorRecoveryHooks(recovery, on_event=events.append)
+        events: list[dict] = []
+        recovery.on_event = events.append
 
         tool = Mock()
         tool.name = "my_tool"
         ctx = Mock()
-        ctx.tool_arguments = "{}"
 
-        await hooks.on_tool_start(ctx, Mock(), tool)
-        await hooks.on_tool_end(ctx, Mock(), tool, json.dumps({"data": "ok"}))
+        recovery.on_tool_start(ctx, tool, "{}")
+        recovery.on_tool_end(ctx, tool, json.dumps({"data": "ok"}))
 
         assert len(events) == 0
 
@@ -447,17 +433,17 @@ class TestBaseAgentRunnerIntegration:
 
         agent = Mock()
         agent.instructions = "Base instructions."
-        runner._apply_dynamic_instructions(agent, recovery=recovery)
+        runner._apply_dynamic_instructions(agent, [recovery])
 
         assert callable(agent.instructions)
         result = agent.instructions(Mock(), Mock())
         assert "Base instructions." in result
         assert "Tool Error Recovery" in result
 
-    def test_apply_dynamic_instructions_no_features(self, runner):
+    def test_apply_dynamic_instructions_no_capabilities(self, runner):
         agent = Mock()
         agent.instructions = "Static."
-        runner._apply_dynamic_instructions(agent)
+        runner._apply_dynamic_instructions(agent, [])
         # Should NOT replace with callable
         assert agent.instructions == "Static."
 
@@ -471,41 +457,35 @@ class TestBaseAgentRunnerIntegration:
 
         agent = Mock()
         agent.instructions = "Base."
-        runner._apply_dynamic_instructions(agent, budget=budget, recovery=recovery)
+        runner._apply_dynamic_instructions(agent, [budget, recovery])
 
         result = agent.instructions(Mock(), Mock())
         assert "Base." in result
         assert "remaining" in result  # budget section
         assert "Tool Error Recovery" in result  # recovery section
 
-    def test_build_hooks_none_when_no_features(self):
+    def test_build_hooks_none_when_no_capabilities(self):
         from sinan_agentic_core.core.base_runner import BaseAgentRunner
-        assert BaseAgentRunner._build_hooks() is None
+        assert BaseAgentRunner._build_hooks([]) is None
 
-    def test_build_hooks_single_budget(self):
-        from sinan_agentic_core.core.base_runner import BaseAgentRunner
-        from sinan_agentic_core.core.turn_budget import TurnBudget, TurnBudgetHooks
-
-        hooks = BaseAgentRunner._build_hooks(budget=TurnBudget())
-        assert isinstance(hooks, TurnBudgetHooks)
-
-    def test_build_hooks_single_recovery(self):
-        from sinan_agentic_core.core.base_runner import BaseAgentRunner
-
-        hooks = BaseAgentRunner._build_hooks(recovery=ToolErrorRecovery())
-        assert isinstance(hooks, ToolErrorRecoveryHooks)
-
-    def test_build_hooks_composite_when_both(self):
+    def test_build_hooks_returns_composite(self):
         from sinan_agentic_core.core.base_runner import BaseAgentRunner, _CompositeHooks
         from sinan_agentic_core.core.turn_budget import TurnBudget
 
-        hooks = BaseAgentRunner._build_hooks(
-            budget=TurnBudget(), recovery=ToolErrorRecovery()
-        )
+        hooks = BaseAgentRunner._build_hooks([TurnBudget()])
+        assert isinstance(hooks, _CompositeHooks)
+
+    def test_build_hooks_composite_when_multiple(self):
+        from sinan_agentic_core.core.base_runner import BaseAgentRunner, _CompositeHooks
+        from sinan_agentic_core.core.turn_budget import TurnBudget
+
+        hooks = BaseAgentRunner._build_hooks([TurnBudget(), ToolErrorRecovery()])
         assert isinstance(hooks, _CompositeHooks)
 
     @pytest.mark.asyncio
     async def test_execute_basic_with_recovery(self, runner):
+        from sinan_agentic_core.core.base_runner import _CompositeHooks
+
         recovery = ToolErrorRecovery()
         context = Mock()
         session = Mock()
@@ -523,12 +503,12 @@ class TestBaseAgentRunnerIntegration:
 
                 result = await runner._execute_basic(
                     "test_agent", context, session, 10, "hello",
-                    error_recovery=recovery,
+                    capabilities=[recovery],
                 )
 
                 assert result == "test output"
                 call_kwargs = MockRunner.run.call_args[1]
-                assert isinstance(call_kwargs["hooks"], ToolErrorRecoveryHooks)
+                assert isinstance(call_kwargs["hooks"], _CompositeHooks)
 
     @pytest.mark.asyncio
     async def test_execute_resets_recovery(self, runner):
@@ -554,30 +534,36 @@ class TestBaseAgentRunnerIntegration:
 
 class TestCompositeHooks:
     @pytest.mark.asyncio
-    async def test_delegates_to_all_hooks(self):
+    async def test_delegates_to_all_capabilities(self):
         from sinan_agentic_core.core.base_runner import _CompositeHooks
 
-        hook_a = Mock()
-        hook_a.on_tool_start = AsyncMock()
-        hook_a.on_tool_end = AsyncMock()
-        hook_a.on_llm_start = AsyncMock()
+        cap_a = Mock(spec=Capability)
+        cap_b = Mock(spec=Capability)
 
-        hook_b = Mock()
-        hook_b.on_tool_start = AsyncMock()
-        hook_b.on_tool_end = AsyncMock()
-        hook_b.on_llm_start = AsyncMock()
-
-        composite = _CompositeHooks([hook_a, hook_b])
+        composite = _CompositeHooks([cap_a, cap_b])
         await composite.on_tool_start(Mock(), Mock(), Mock())
         await composite.on_tool_end(Mock(), Mock(), Mock(), "result")
         await composite.on_llm_start(Mock(), Mock(), None, [])
 
-        hook_a.on_tool_start.assert_called_once()
-        hook_b.on_tool_start.assert_called_once()
-        hook_a.on_tool_end.assert_called_once()
-        hook_b.on_tool_end.assert_called_once()
-        hook_a.on_llm_start.assert_called_once()
-        hook_b.on_llm_start.assert_called_once()
+        cap_a.on_tool_start.assert_called_once()
+        cap_b.on_tool_start.assert_called_once()
+        cap_a.on_tool_end.assert_called_once()
+        cap_b.on_tool_end.assert_called_once()
+        cap_a.on_llm_start.assert_called_once()
+        cap_b.on_llm_start.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_extracts_tool_arguments_from_context(self):
+        from sinan_agentic_core.core.base_runner import _CompositeHooks
+
+        cap = Mock(spec=Capability)
+        composite = _CompositeHooks([cap])
+        ctx = Mock()
+        ctx.tool_arguments = json.dumps({"x": 1})
+        tool = Mock()
+
+        await composite.on_tool_start(ctx, Mock(), tool)
+        cap.on_tool_start.assert_called_once_with(ctx, tool, ctx.tool_arguments)
 
 
 # ------------------------------------------------------------------ #
@@ -587,11 +573,205 @@ class TestCompositeHooks:
 
 class TestTopLevelImports:
     def test_importable_from_core(self):
-        from sinan_agentic_core.core import ToolErrorRecovery, ToolErrorRecoveryHooks
+        from sinan_agentic_core.core import ToolErrorRecovery
         assert ToolErrorRecovery is not None
-        assert ToolErrorRecoveryHooks is not None
 
     def test_importable_from_top_level(self):
-        from sinan_agentic_core import ToolErrorRecovery, ToolErrorRecoveryHooks
+        from sinan_agentic_core import ToolErrorRecovery
         assert ToolErrorRecovery is not None
-        assert ToolErrorRecoveryHooks is not None
+
+
+# ------------------------------------------------------------------ #
+# Capability protocol adoption
+# ------------------------------------------------------------------ #
+
+
+class TestToolErrorRecoveryIsCapability:
+    def test_is_capability_subclass(self):
+        assert issubclass(ToolErrorRecovery, Capability)
+
+    def test_instance_is_capability(self):
+        assert isinstance(ToolErrorRecovery(), Capability)
+
+    def test_instructions_returns_none_when_clean(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        assert recovery.instructions(ctx) is None
+
+    def test_instructions_returns_section_when_errors_tracked(self):
+        recovery = ToolErrorRecovery()
+        recovery.record_tool_result("my_tool", json.dumps({"error": "fail"}))
+        ctx = RunContextWrapper(context=None)
+        section = recovery.instructions(ctx)
+        assert section is not None
+        assert "Tool Error Recovery" in section
+
+    def test_instructions_matches_build_instruction_section(self):
+        recovery = ToolErrorRecovery()
+        recovery.record_tool_result("my_tool", json.dumps({"error": "fail"}))
+        ctx = RunContextWrapper(context=None)
+        assert recovery.instructions(ctx) == recovery.build_instruction_section()
+
+    def test_on_tool_start_then_end_records_error(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        tool = Mock()
+        tool.name = "my_tool"
+
+        recovery.on_tool_start(ctx, tool, json.dumps({"q": "x"}))
+        recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
+
+        summary = recovery.get_error_summary()
+        assert summary["my_tool"]["error"] == "fail"
+
+    def test_on_tool_end_uses_args_from_on_tool_start(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        tool = Mock()
+        tool.name = "my_tool"
+
+        # Two identical-arg failures via the Capability hooks should be detected
+        # as identical retries.
+        args = json.dumps({"q": "x"})
+        for _ in range(2):
+            recovery.on_tool_start(ctx, tool, args)
+            recovery.on_tool_end(ctx, tool, json.dumps({"error": "fail"}))
+
+        summary = recovery.get_error_summary()
+        assert summary["my_tool"]["identical_count"] == 2
+
+    def test_tools_default_is_empty(self):
+        assert ToolErrorRecovery().tools() == []
+
+
+class TestToolErrorRecoveryClone:
+    def test_clone_returns_tool_error_recovery(self):
+        clone = ToolErrorRecovery().clone()
+        assert isinstance(clone, ToolErrorRecovery)
+
+    def test_clone_is_independent_instance(self):
+        original = ToolErrorRecovery()
+        clone = original.clone()
+        assert clone is not original
+
+    def test_clone_preserves_configuration(self):
+        registry = Mock()
+        original = ToolErrorRecovery(
+            tool_registry=registry,
+            mcp_hints={"mcp_search": "Use a longer query."},
+            max_identical_before_stop=5,
+        )
+        clone = original.clone()
+        assert clone._registry is registry
+        assert clone._mcp_hints == {"mcp_search": "Use a longer query."}
+        assert clone.max_identical_before_stop == 5
+
+    def test_clone_does_not_share_mcp_hints(self):
+        original = ToolErrorRecovery(mcp_hints={"a": "hint"})
+        clone = original.clone()
+        clone._mcp_hints["b"] = "new hint"
+        assert "b" not in original._mcp_hints
+
+    def test_clone_zeroes_error_state(self):
+        original = ToolErrorRecovery()
+        original.record_tool_result("t", json.dumps({"error": "old"}), json.dumps({"a": 1}))
+        original.on_tool_start(RunContextWrapper(context=None), Mock(name="pending_tool"), "{}")
+        assert original.has_errors
+
+        clone = original.clone()
+        assert not clone.has_errors
+        assert clone.get_error_summary() == {}
+        assert clone._last_args == {}
+        assert clone._pending_args == {}
+
+    def test_clone_does_not_mutate_original(self):
+        original = ToolErrorRecovery()
+        original.record_tool_result("t", json.dumps({"error": "keep"}), json.dumps({"a": 1}))
+
+        clone = original.clone()
+        clone.record_tool_result("t", json.dumps({"error": "fresh"}), json.dumps({"a": 2}))
+
+        # Original keeps its single tracked error untouched
+        assert original.get_error_summary()["t"]["error"] == "keep"
+        assert original.get_error_summary()["t"]["call_count"] == 1
+        assert clone.get_error_summary()["t"]["error"] == "fresh"
+
+
+class TestResetClearsPendingArgs:
+    def test_reset_clears_pending_args(self):
+        recovery = ToolErrorRecovery()
+        ctx = RunContextWrapper(context=None)
+        tool = Mock()
+        tool.name = "my_tool"
+        recovery.on_tool_start(ctx, tool, json.dumps({"q": "x"}))
+        assert recovery._pending_args  # in-flight
+
+        recovery.reset()
+        assert recovery._pending_args == {}
+
+
+# ------------------------------------------------------------------ #
+# Snapshot / rehydrate
+# ------------------------------------------------------------------ #
+
+
+def _record_failure(recovery: ToolErrorRecovery, tool_name: str, args: dict, message: str = "boom") -> None:
+    """Helper: simulate a single failed tool call."""
+    ctx = RunContextWrapper(context=None)
+    tool = Mock()
+    tool.name = tool_name
+    recovery.on_tool_start(ctx, tool, json.dumps(args))
+    recovery.on_tool_end(ctx, tool, json.dumps({"error": message}))
+
+
+class TestToolErrorRecoverySnapshot:
+    def test_snapshot_captures_tracked_errors(self):
+        recovery = ToolErrorRecovery()
+        _record_failure(recovery, "search", {"q": "x"}, "404")
+
+        snap = recovery.to_snapshot()
+        assert "search" in snap["errors"]
+        assert snap["errors"]["search"]["call_count"] == 1
+        assert snap["errors"]["search"]["error"] == "404"
+        assert "search" in snap["last_args"]
+
+    def test_round_trip_preserves_error_state(self):
+        # AC: same round-trip behavior for ToolErrorRecovery as TurnBudget.
+        original = ToolErrorRecovery(max_identical_before_stop=3)
+        _record_failure(original, "search", {"q": "a"}, "fail-1")
+        _record_failure(original, "search", {"q": "a"}, "fail-2")
+        _record_failure(original, "fetch", {"url": "u"}, "timeout")
+
+        snap = original.to_snapshot()
+
+        resumed = ToolErrorRecovery(max_identical_before_stop=3)
+        resumed.from_snapshot(snap)
+
+        assert resumed.has_errors
+        assert resumed._errors["search"].call_count == 2
+        assert resumed._errors["search"].identical_count == 2
+        assert resumed._errors["fetch"].call_count == 1
+        assert resumed._last_args["search"] == original._last_args["search"]
+        assert resumed._pending_args == {}
+
+    def test_snapshot_is_json_serializable(self):
+        recovery = ToolErrorRecovery()
+        _record_failure(recovery, "search", {"q": "x"})
+        json.dumps(recovery.to_snapshot())  # must not raise
+
+    def test_from_snapshot_tolerates_missing_keys(self):
+        recovery = ToolErrorRecovery()
+        recovery.from_snapshot({})
+        assert recovery._errors == {}
+        assert recovery._last_args == {}
+
+    def test_round_trip_preserves_instruction_escalation(self):
+        original = ToolErrorRecovery(max_identical_before_stop=3)
+        _record_failure(original, "search", {"q": "a"}, "fail")
+        _record_failure(original, "search", {"q": "a"}, "fail")
+        _record_failure(original, "search", {"q": "a"}, "fail")
+
+        resumed = ToolErrorRecovery(max_identical_before_stop=3)
+        resumed.from_snapshot(original.to_snapshot())
+        assert resumed.has_critical_errors
+        assert "STOP" in resumed.build_instruction_section()

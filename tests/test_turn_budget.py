@@ -3,8 +3,10 @@
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
+from agents import RunContextWrapper
 
-from sinan_agentic_core.core.turn_budget import TurnBudget, TurnBudgetHooks
+from sinan_agentic_core.core.capabilities import Capability
+from sinan_agentic_core.core.turn_budget import TurnBudget
 
 
 # ------------------------------------------------------------------ #
@@ -205,25 +207,30 @@ class TestBuildInstructionSection:
 
 
 # ------------------------------------------------------------------ #
-# TurnBudgetHooks
+# TurnBudget — on_llm_start capability hook
 # ------------------------------------------------------------------ #
 
 
-class TestTurnBudgetHooks:
-    @pytest.mark.asyncio
-    async def test_on_llm_start_records_turn(self):
+class TestTurnBudgetOnLlmStart:
+    def test_on_llm_start_records_turn(self):
         budget = TurnBudget()
-        hooks = TurnBudgetHooks(budget)
-        await hooks.on_llm_start(Mock(), Mock(), None, [])
+        budget.on_llm_start(Mock(), Mock(), None, [])
         assert budget.turns_used == 1
 
-    @pytest.mark.asyncio
-    async def test_multiple_llm_starts(self):
+    def test_multiple_llm_starts(self):
         budget = TurnBudget()
-        hooks = TurnBudgetHooks(budget)
         for _ in range(5):
-            await hooks.on_llm_start(Mock(), Mock(), None, [])
+            budget.on_llm_start(Mock(), Mock(), None, [])
         assert budget.turns_used == 5
+
+    def test_on_llm_start_emits_event_when_streaming(self):
+        budget = TurnBudget(default_turns=10)
+        events: list[dict] = []
+        budget.on_event = events.append
+        budget.on_llm_start(Mock(), Mock(), None, [])
+        assert len(events) == 1
+        assert events[0]["event"] == "turn_budget"
+        assert events[0]["data"]["turns_used"] == 1
 
 
 # ------------------------------------------------------------------ #
@@ -317,25 +324,25 @@ class TestBaseAgentRunnerTurnBudget:
         ):
             return BaseAgentRunner()
 
-    def test_make_instructions_dynamic_from_static(self, runner):
+    def test_apply_dynamic_instructions_from_static(self, runner):
         agent = Mock()
         agent.instructions = "Static instructions."
         budget = TurnBudget(default_turns=10)
         budget.turns_used = 8
 
-        runner._make_instructions_dynamic(agent, budget)
+        runner._apply_dynamic_instructions(agent, [budget])
 
         assert callable(agent.instructions)
         result = agent.instructions(Mock(), Mock())
         assert "Static instructions." in result
         assert "remaining" in result and "10" in result
 
-    def test_make_instructions_dynamic_from_callable(self, runner):
+    def test_apply_dynamic_instructions_from_callable(self, runner):
         agent = Mock()
         agent.instructions = lambda ctx, a: "Dynamic base."
         budget = TurnBudget(default_turns=5)
 
-        runner._make_instructions_dynamic(agent, budget)
+        runner._apply_dynamic_instructions(agent, [budget])
 
         assert callable(agent.instructions)
         result = agent.instructions(Mock(), Mock())
@@ -344,6 +351,8 @@ class TestBaseAgentRunnerTurnBudget:
 
     @pytest.mark.asyncio
     async def test_execute_basic_with_budget(self, runner):
+        from sinan_agentic_core.core.base_runner import _CompositeHooks
+
         budget = TurnBudget(default_turns=10, absolute_max=25)
         context = Mock()
         session = Mock()
@@ -361,13 +370,13 @@ class TestBaseAgentRunnerTurnBudget:
 
                 result = await runner._execute_basic(
                     "test_agent", context, session, 25, "hello",
-                    turn_budget=budget,
+                    capabilities=[budget],
                 )
 
                 assert result == "test output"
                 # Verify hooks were passed
                 call_kwargs = MockRunner.run.call_args[1]
-                assert isinstance(call_kwargs["hooks"], TurnBudgetHooks)
+                assert isinstance(call_kwargs["hooks"], _CompositeHooks)
                 assert call_kwargs["max_turns"] == 25
 
     @pytest.mark.asyncio
@@ -388,7 +397,7 @@ class TestBaseAgentRunnerTurnBudget:
             call_args = mock_basic.call_args
             # sdk_max_turns should be absolute_max
             assert call_args[0][3] == 25  # max_turns positional arg
-            assert call_args[1]["turn_budget"] is budget
+            assert budget in call_args[1]["capabilities"]
 
     @pytest.mark.asyncio
     async def test_execute_attaches_budget_to_context(self, runner):
@@ -442,6 +451,161 @@ class TestBaseAgentRunnerTurnBudget:
 
 
 # ------------------------------------------------------------------ #
+# Capability protocol adoption
+# ------------------------------------------------------------------ #
+
+
+class TestTurnBudgetIsCapability:
+    def test_is_capability_subclass(self):
+        assert issubclass(TurnBudget, Capability)
+
+    def test_instance_is_capability(self):
+        assert isinstance(TurnBudget(), Capability)
+
+    def test_instructions_returns_initial_section(self):
+        budget = TurnBudget(default_turns=10)
+        ctx = RunContextWrapper(context=None)
+        section = budget.instructions(ctx)
+        assert section is not None
+        assert "10 turns" in section
+
+    def test_instructions_reflects_state(self):
+        budget = TurnBudget(default_turns=10, reminder_at=2)
+        budget.turns_used = 5
+        ctx = RunContextWrapper(context=None)
+        section = budget.instructions(ctx)
+        assert section is not None
+        assert "5 of 10" in section
+
+    def test_instructions_matches_build_instruction_section(self):
+        budget = TurnBudget(default_turns=10, reminder_at=2)
+        budget.turns_used = 9
+        ctx = RunContextWrapper(context=None)
+        assert budget.instructions(ctx) == budget.build_instruction_section()
+
+    def test_tools_returns_request_extension(self):
+        from sinan_agentic_core.core.turn_budget_tool import request_extension_tool
+        assert TurnBudget().tools() == [request_extension_tool]
+
+
+class TestTurnBudgetClone:
+    def test_clone_returns_turn_budget(self):
+        clone = TurnBudget().clone()
+        assert isinstance(clone, TurnBudget)
+
+    def test_clone_is_independent_instance(self):
+        original = TurnBudget(default_turns=10)
+        clone = original.clone()
+        assert clone is not original
+
+    def test_clone_preserves_configuration(self):
+        original = TurnBudget(
+            default_turns=8,
+            reminder_at=1,
+            max_extensions=4,
+            extension_size=3,
+            absolute_max=20,
+        )
+        clone = original.clone()
+        assert clone.default_turns == 8
+        assert clone.reminder_at == 1
+        assert clone.max_extensions == 4
+        assert clone.extension_size == 3
+        assert clone.absolute_max == 20
+
+    def test_clone_zeroes_counters(self):
+        original = TurnBudget(default_turns=10)
+        original.turns_used = 7
+        original.extensions_used = 2
+        original.extension_reasons.extend(["a", "b"])
+
+        clone = original.clone()
+        assert clone.turns_used == 0
+        assert clone.extensions_used == 0
+        assert clone.extension_reasons == []
+
+    def test_clone_does_not_mutate_original(self):
+        original = TurnBudget(default_turns=10)
+        original.turns_used = 4
+        original.extensions_used = 1
+        original.extension_reasons.append("keep me")
+
+        clone = original.clone()
+        clone.record_turn()
+        clone.request_extension("clone-only reason")
+
+        assert original.turns_used == 4
+        assert original.extensions_used == 1
+        assert original.extension_reasons == ["keep me"]
+
+    def test_clone_does_not_share_extension_reasons(self):
+        original = TurnBudget(default_turns=10)
+        original.extension_reasons.append("seed")
+        clone = original.clone()
+        assert clone.extension_reasons is not original.extension_reasons
+
+
+# ------------------------------------------------------------------ #
+# Snapshot / rehydrate
+# ------------------------------------------------------------------ #
+
+
+class TestTurnBudgetSnapshot:
+    def test_snapshot_serializes_counters(self):
+        budget = TurnBudget(default_turns=10)
+        budget.record_turn()
+        budget.record_turn()
+        budget.request_extension("need more")
+
+        snap = budget.to_snapshot()
+        assert snap == {
+            "turns_used": 2,
+            "extensions_used": 1,
+            "extension_reasons": ["need more"],
+        }
+
+    def test_round_trip_preserves_remaining_budget(self):
+        # AC: configure to 10 turns, advance to 4, snapshot, rehydrate, expect 6 remaining.
+        original = TurnBudget(default_turns=10)
+        for _ in range(4):
+            original.record_turn()
+        snap = original.to_snapshot()
+
+        resumed = TurnBudget(default_turns=10)
+        resumed.from_snapshot(snap)
+        assert resumed.turns_used == 4
+        assert resumed.remaining == 6
+        assert resumed.effective_max == 10
+
+    def test_round_trip_preserves_extensions(self):
+        original = TurnBudget(default_turns=5, extension_size=3, max_extensions=2)
+        original.request_extension("first")
+        original.record_turn()
+
+        resumed = TurnBudget(default_turns=5, extension_size=3, max_extensions=2)
+        resumed.from_snapshot(original.to_snapshot())
+
+        assert resumed.extensions_used == 1
+        assert resumed.effective_max == 8
+        assert resumed.remaining == 7
+        assert resumed.extension_reasons == ["first"]
+
+    def test_from_snapshot_tolerates_missing_keys(self):
+        budget = TurnBudget()
+        budget.from_snapshot({})  # must not raise
+        assert budget.turns_used == 0
+        assert budget.extensions_used == 0
+        assert budget.extension_reasons == []
+
+    def test_snapshot_is_json_serializable(self):
+        import json
+        budget = TurnBudget()
+        budget.record_turn()
+        budget.request_extension("why")
+        json.dumps(budget.to_snapshot())  # must not raise
+
+
+# ------------------------------------------------------------------ #
 # Top-level imports
 # ------------------------------------------------------------------ #
 
@@ -451,11 +615,6 @@ class TestTopLevelImports:
         from sinan_agentic_core import TurnBudget
         assert TurnBudget is not None
 
-    def test_turn_budget_hooks_importable(self):
-        from sinan_agentic_core import TurnBudgetHooks
-        assert TurnBudgetHooks is not None
-
     def test_turn_budget_from_core(self):
-        from sinan_agentic_core.core import TurnBudget, TurnBudgetHooks
+        from sinan_agentic_core.core import TurnBudget
         assert TurnBudget is not None
-        assert TurnBudgetHooks is not None
