@@ -1016,10 +1016,14 @@ sinan_agentic_core/
 ├── __init__.py              # Main exports
 ├── orchestrator.py          # Multi-agent orchestration
 ├── core/
-│   ├── base_runner.py       # BaseAgentRunner
-│   ├── errors.py            # structured_tool_error for agent-as-tool failures
-│   ├── turn_budget.py       # TurnBudget + TurnBudgetHooks (soft turn management)
-│   └── turn_budget_tool.py  # request_extension tool (agent self-approval)
+│   ├── base_runner.py            # BaseAgentRunner
+│   ├── capabilities/             # Capability protocol (pluggable agent behaviors)
+│   │   ├── __init__.py
+│   │   └── base.py               # Capability base class + lifecycle hooks
+│   ├── errors.py                 # structured_tool_error for agent-as-tool failures
+│   ├── tool_error_recovery.py    # ToolErrorRecovery capability
+│   ├── turn_budget.py            # TurnBudget capability + TurnBudgetHooks
+│   └── turn_budget_tool.py       # request_extension tool (agent self-approval)
 ├── instructions/
 │   └── builder.py           # InstructionBuilder base class
 ├── mcp/                        # MCP server support (optional, requires sinan-agentic-core[mcp])
@@ -1029,11 +1033,12 @@ sinan_agentic_core/
 │   ├── tool_adapter.py         # Wraps registered tools for MCP invocation
 │   └── yaml_schema.py          # Pydantic models for MCP YAML config
 ├── registry/
-│   ├── agent_catalog.py     # YAML-driven agent catalog + MCP server definitions
-│   ├── agent_registry.py    # AgentDefinition + registry
-│   ├── agent_factory.py     # create_agent_from_registry()
-│   ├── tool_catalog.py      # YAML-driven tool catalog + MCP exposure flags
-│   ├── tool_registry.py     # ToolDefinition + registry
+│   ├── agent_catalog.py        # YAML-driven agent catalog + MCP server definitions
+│   ├── agent_registry.py       # AgentDefinition + registry
+│   ├── agent_factory.py        # create_agent_from_registry()
+│   ├── capability_registry.py  # @register_capability + named capability factories
+│   ├── tool_catalog.py         # YAML-driven tool catalog + MCP exposure flags
+│   ├── tool_registry.py        # ToolDefinition + registry
 │   └── guardrail_registry.py
 ├── services/
 │   ├── chat.py              # chat(), chat_with_hooks(), chat_streamed()

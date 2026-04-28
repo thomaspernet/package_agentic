@@ -38,6 +38,8 @@ The full surface lives in `sinan_agentic_core/core/capabilities/base.py`:
 | `tools()` | Extra tools the capability exposes to the agent |
 | `reset()` | Called at the start of every `execute()` - clear mutable state |
 | `clone()` | Per-run copy; default is `copy.deepcopy(self)` |
+| `to_snapshot()` | Return a JSON-serializable dict of mutable state, or `None` to opt out of persistence |
+| `from_snapshot(data)` | Rehydrate state from a dict produced by `to_snapshot()` |
 
 A capability may also assign `self.on_event = callback` to emit custom
 streaming events. The runtime sets this on cloned capabilities when streaming.
@@ -282,12 +284,32 @@ await runner.execute(
 Both forms produce the same effective capability list. Runtime kwargs still
 win when you need to inspect post-run state.
 
-**YAML users.** The current `agents.yaml` schema continues to use the
-`turn_budget:` block and the `error_recovery: bool` flag - those keep
-working as a convenience for the two built-in capabilities. A general
-`capabilities:` YAML block (for arbitrary user-defined capabilities) is the
-next planned increment; until it lands, attach custom capabilities in
-Python after loading the catalog:
+**YAML users.** The `agents.yaml` schema supports capabilities through
+two paths that compose in a single agent entry:
+
+- `turn_budget:` and `error_recovery:` shorthand keys — same as before,
+  resolved into the two built-in capabilities.
+- An explicit `capabilities:` list — references any name registered in
+  the [`CapabilityRegistry`](#yaml-capabilities). Built-ins are
+  pre-registered; custom capabilities register via
+  `@register_capability("name")`.
+
+```yaml
+# agents.yaml
+agents:
+  research_agent:
+    model: gpt-4o
+    description: Deep research
+    max_turns: 25
+    turn_budget:
+      default_turns: 10
+      reminder_at: 2
+    error_recovery: true
+    capabilities:
+      - name: audit_log
+        config:
+          label: research-run
+```
 
 ```python
 catalog = load_agent_catalog("agents.yaml")
@@ -299,13 +321,106 @@ register_agent(AgentDefinition(
     description=cfg.description,
     tools=cfg.tools,
     instructions=build_instructions,
-    capabilities=[
-        cfg.build_turn_budget(),
-        cfg.build_error_recovery(),
-        ToolCallLogger(),
-    ],
+    capabilities=cfg.build_capabilities(),
 ))
 ```
+
+`build_capabilities()` resolves both shorthand keys and the explicit
+list in that order. Unknown capability names raise
+`CapabilityNotFoundError` at `catalog.get()` time, so typos surface at
+startup rather than mid-run.
+
+## YAML capabilities
+
+Custom capabilities reach `agents.yaml` through the
+`CapabilityRegistry`. A factory takes a config dict (whatever the YAML
+entry's `config:` mapping holds) and returns a `Capability` instance.
+
+```python
+from sinan_agentic_core import register_capability, Capability
+
+
+@register_capability("audit_log")
+def build_audit_log(config: dict) -> Capability:
+    return AuditLog(**config)
+```
+
+Once the factory is registered (decorator runs at import time), the
+name is referenceable from any `agents.yaml`:
+
+```yaml
+agents:
+  scribe:
+    model: gpt-4o-mini
+    description: Demo agent
+    capabilities:
+      - name: audit_log
+        config:
+          label: scribe-run
+      - name: turn_budget          # built-ins work the same way
+        config:
+          default_turns: 5
+```
+
+Two registry rules worth knowing:
+
+- Re-registering a name overwrites the previous factory (last wins).
+  Useful for tests; surprising in production — keep names unique.
+- The two built-ins (`turn_budget`, `error_recovery`) are registered on
+  `import sinan_agentic_core.registry.capability_registry`. Custom
+  factories are usually placed next to the capability class so the
+  registration runs as soon as that module is imported.
+
+The runnable example lives at `examples/yaml_capabilities/run.py`.
+
+## Snapshot and rehydrate
+
+A capability that wants its state to survive a process restart
+overrides two methods:
+
+```python
+class TurnBudget(Capability):
+    def to_snapshot(self) -> dict[str, int] | None:
+        return {
+            "turns_used": self.turns_used,
+            "extensions_used": self.extensions_used,
+        }
+
+    def from_snapshot(self, data: dict) -> None:
+        self.turns_used = data.get("turns_used", 0)
+        self.extensions_used = data.get("extensions_used", 0)
+```
+
+Capabilities that return `None` from `to_snapshot()` are treated as
+stateless and skipped — that is the default, so nothing changes for
+existing capabilities.
+
+`AgentSession` provides two helpers to drive persistence against a
+`SQLiteSessionStore`:
+
+```python
+from sinan_agentic_core import AgentSession, SQLiteSessionStore
+
+store = SQLiteSessionStore("data/conversations.db")
+session = AgentSession(session_id="user-123")
+
+# Before the run: pull any saved blobs back into the capabilities.
+session.rehydrate_capabilities(store, agent_def.capabilities)
+
+# After the run: write each opt-in capability's snapshot.
+session.persist_capabilities(store, agent_def.capabilities)
+```
+
+Snapshots key off the capability's fully-qualified class name by
+default, so two capabilities of the same type collapse to one row per
+session. Subclasses that need per-instance separation set
+`self.snapshot_key = "..."` on the instance.
+
+The dedicated table is `capability_snapshots(session_id,
+capability_key, snapshot, updated_at)`. Each save upserts on the
+composite primary key; clearing or archiving a session leaves
+snapshots untouched unless you call
+`store.delete_capability_snapshots(session_id)`.
 
 ## Reference
 
@@ -316,4 +431,11 @@ register_agent(AgentDefinition(
   `sinan_agentic_core/core/base_runner.py:1051`
 - Built-ins: `sinan_agentic_core/core/turn_budget.py`,
   `sinan_agentic_core/core/tool_error_recovery.py`
-- Runnable example: `examples/custom_capability.py`
+- YAML registry: `sinan_agentic_core/registry/capability_registry.py`
+- YAML wiring: `AgentYamlEntry.build_capabilities` in
+  `sinan_agentic_core/registry/agent_catalog.py`
+- Snapshot store: `SQLiteSessionStore.save_capability_snapshot` /
+  `load_all_capability_snapshots` in
+  `sinan_agentic_core/session/sqlite_store.py`
+- Runnable examples: `examples/custom_capability.py`,
+  `examples/yaml_capabilities/run.py`
