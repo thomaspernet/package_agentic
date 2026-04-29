@@ -24,6 +24,7 @@ Usage:
 import json
 import logging
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -41,7 +42,7 @@ class SQLiteSessionStore:
     - Archiving and deleting sessions
     """
 
-    def __init__(self, db_path: str = "data/conversations.db"):
+    def __init__(self, db_path: str = "data/conversations.db") -> None:
         """
         Args:
             db_path: Path to the SQLite database file.
@@ -52,7 +53,7 @@ class SQLiteSessionStore:
         self._init_schema()
 
     @contextmanager
-    def _connect(self):
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         """Context manager for database connections."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
@@ -61,7 +62,7 @@ class SQLiteSessionStore:
         finally:
             conn.close()
 
-    def _init_schema(self):
+    def _init_schema(self) -> None:
         """Create tables if they don't exist."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -157,7 +158,7 @@ class SQLiteSessionStore:
                 (session_id,),
             )
             conn.commit()
-            return cursor.rowcount > 0
+            return bool(cursor.rowcount > 0)
 
     def clear_session(self, session_id: str) -> bool:
         """Delete a session and all its messages permanently.
@@ -174,7 +175,7 @@ class SQLiteSessionStore:
             )
             cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             conn.commit()
-            return cursor.rowcount > 0
+            return bool(cursor.rowcount > 0)
 
     def get_active_sessions(self) -> list[dict[str, Any]]:
         """Get all active (non-archived) sessions with message counts."""
@@ -212,7 +213,8 @@ class SQLiteSessionStore:
                 "SELECT COUNT(*) as count FROM messages WHERE session_id = ?",
                 (session_id,),
             )
-            return cursor.fetchone()["count"]
+            count: int = cursor.fetchone()["count"]
+            return count
 
     # -----------------------------------------------------------------
     # Message operations
@@ -223,7 +225,7 @@ class SQLiteSessionStore:
         session_id: str,
         role: str,
         content: str,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> int:
         """Add a message to a session.
 
@@ -265,6 +267,7 @@ class SQLiteSessionStore:
                 )
 
             conn.commit()
+            assert message_id is not None
             return message_id
 
     def get_messages(self, session_id: str, limit: int = 100) -> list[dict[str, Any]]:

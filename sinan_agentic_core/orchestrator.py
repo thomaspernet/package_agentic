@@ -32,7 +32,7 @@ class AgentOrchestrator(BaseAgentRunner):
         )
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Initialize base class (loads registries and builds mappings)
         super().__init__()
 
@@ -41,7 +41,7 @@ class AgentOrchestrator(BaseAgentRunner):
         user_query: str,
         context_data: dict[str, Any],
         session_id: str | None = None,
-        initial_history: list | None = None,
+        initial_history: list[Any] | None = None,
         event_callback: Callable[..., Any] | None = None,
     ) -> dict[str, Any]:
         """Run the orchestrator workflow.

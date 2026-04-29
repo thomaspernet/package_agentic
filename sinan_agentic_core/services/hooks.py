@@ -41,9 +41,9 @@ class StreamingRunHooks(RunHooks):
 
     def __init__(
         self,
-        event_queue: asyncio.Queue,
+        event_queue: asyncio.Queue[Any],
         tool_friendly_names: dict[str, str] | None = None,
-    ):
+    ) -> None:
         """
         Args:
             event_queue: Queue that receives event dicts.

@@ -21,11 +21,11 @@ Usage::
 import logging
 from typing import Any
 
-from ..registry.tool_catalog import ToolCatalog
+from ..registry.tool_catalog import ToolCatalog, ToolMCPConfig
 from ..registry.tool_registry import ToolRegistry
 from .context_protocol import MCPContextFactory
 from .tool_adapter import MCPToolAdapter
-from .yaml_schema import MCPServerConfig, MCPToolConfig
+from .yaml_schema import MCPServerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -155,14 +155,14 @@ class MCPServerBuilder:
 
         return mcp
 
-    def _get_tool_mcp_config(self, tool_name: str) -> MCPToolConfig | None:
+    def _get_tool_mcp_config(self, tool_name: str) -> "ToolMCPConfig | None":
         """Get MCP-specific config for a tool from the catalog."""
         try:
             entry = self._catalog.get(tool_name)
         except KeyError:
             return None
 
-        mcp_raw = getattr(entry, "mcp", None)
+        mcp_raw: ToolMCPConfig | None = getattr(entry, "mcp", None)
         if mcp_raw is None:
             return None
         return mcp_raw

@@ -28,7 +28,7 @@ class ToolOutput:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"success": self.success}
+        result: dict[str, Any] = {"success": self.success}
         if self.data is not None:
             result["data"] = self.data
         if self.error:
@@ -60,7 +60,7 @@ class ChatResponse:
     usage: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "success": self.success,
             "response": self.response,
             "session_id": self.session_id,

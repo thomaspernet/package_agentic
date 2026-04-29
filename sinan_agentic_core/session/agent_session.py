@@ -5,7 +5,7 @@ This is a generic conversation history manager that works with the OpenAI Agents
 
 import json
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agents.items import TResponseInputItem
 from agents.memory.session import SessionABC
@@ -22,14 +22,14 @@ class ConversationHistory:
     Extend this for your specific storage needs (database persistence, etc.).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.messages: list[dict[str, Any]] = []
 
     def to_list_dict(self) -> list[dict[str, Any]]:
         """Convert to list of message dictionaries."""
         return self.messages.copy()
 
-    def add_message(self, role: str, content: str, **kwargs) -> None:
+    def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to history.
 
         Args:
@@ -70,7 +70,7 @@ class AgentSession(SessionABC):
         session_id: str,
         initial_history: ConversationHistory | None = None,
         max_items: int = 50,
-    ):
+    ) -> None:
         """Initialize session.
 
         Args:
@@ -94,8 +94,8 @@ class AgentSession(SessionABC):
         """
         items = self.history.to_list_dict()
         if limit:
-            return items[-limit:]
-        return items
+            return cast(list[TResponseInputItem], items[-limit:])
+        return cast(list[TResponseInputItem], items)
 
     async def add_items(self, items: list[TResponseInputItem]) -> None:
         """Add new messages to conversation history.
@@ -103,7 +103,11 @@ class AgentSession(SessionABC):
         Args:
             items: List of message dicts to add
         """
-        for item in items:
+        for raw_item in items:
+            # Items arrive as the SDK's TResponseInputItem union of TypedDicts;
+            # we treat them as plain dicts internally for storage.
+            item = cast(dict[str, Any], raw_item)
+
             # Skip empty messages
             content = item.get("content", "")
             if not content or (isinstance(content, str) and not content.strip()):
@@ -126,7 +130,7 @@ class AgentSession(SessionABC):
                     pass
 
             # Create message dict
-            msg = {"role": item.get("role"), "content": str(content)}
+            msg: dict[str, Any] = {"role": item.get("role"), "content": str(content)}
 
             # Add optional fields
             if "name" in item:
@@ -143,7 +147,7 @@ class AgentSession(SessionABC):
             Last message as dict, or None if empty
         """
         if self.history.messages:
-            return self.history.messages.pop()
+            return cast(TResponseInputItem, self.history.messages.pop())
         return None
 
     async def clear_session(self) -> None:
