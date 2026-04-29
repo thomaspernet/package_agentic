@@ -20,11 +20,13 @@ from agents import (
     Runner,
     Usage,
 )
+from agents.items import TResponseInputItem
 from openai.types.responses import ResponseCompletedEvent, ResponseTextDeltaEvent
 
 from ..models import outputs as output_models
 from ..models.context import AgentContext
 from ..registry import get_agent_registry, get_guardrail_registry, get_tool_registry
+from ..registry.agent_registry import AgentDefinition
 from ..session import AgentSession, ConversationHistory
 from .capabilities import Capability
 from .errors import structured_tool_error
@@ -142,6 +144,7 @@ class BaseAgentRunner:
         handoffs = await self._build_handoffs(agent_def.handoffs, context)
         output_type = self._resolve_output_type(agent_def.output_dataclass)
 
+        model_settings: ModelSettings | None
         if model_settings_override is not None:
             model_settings = model_settings_override
         else:
@@ -670,7 +673,7 @@ class BaseAgentRunner:
     # Private helpers — agent construction
     # ------------------------------------------------------------------ #
 
-    def _get_agent_definition(self, agent_name: str) -> Any:
+    def _get_agent_definition(self, agent_name: str) -> AgentDefinition:
         """Get agent definition from registry with validation.
 
         Args:
@@ -823,7 +826,7 @@ class BaseAgentRunner:
 
         return handoffs
 
-    def _resolve_output_type(self, output_dataclass: Any) -> Any:
+    def _resolve_output_type(self, output_dataclass: Any) -> type[Any]:
         """Resolve output type from agent definition.
 
         Args:
@@ -837,14 +840,18 @@ class BaseAgentRunner:
 
         if isinstance(output_dataclass, str):
             try:
-                return getattr(output_models, output_dataclass)
+                resolved: type[Any] = getattr(output_models, output_dataclass)
+                return resolved
             except AttributeError:
                 logger.warning(f"Output dataclass '{output_dataclass}' not found")
                 return str
 
-        return output_dataclass
+        cls: type[Any] = output_dataclass
+        return cls
 
-    def _build_model_settings(self, agent_def: Any, ctx_wrapper: RunContextWrapper[Any]) -> Any:
+    def _build_model_settings(
+        self, agent_def: Any, ctx_wrapper: RunContextWrapper[Any]
+    ) -> ModelSettings | None:
         """Build model settings if provided.
 
         Args:
@@ -858,7 +865,8 @@ class BaseAgentRunner:
             return None
 
         try:
-            return agent_def.model_settings_fn(ctx_wrapper)
+            settings: ModelSettings | None = agent_def.model_settings_fn(ctx_wrapper)
+            return settings
         except Exception as e:
             logger.error(f"Error building model settings: {e}")
             return None
@@ -1064,7 +1072,7 @@ class _CollectingSessionWrapper:
         self.raw_items.extend(items)
         await self._real.add_items(items)
 
-    async def pop_item(self) -> Any:
+    async def pop_item(self) -> "TResponseInputItem | None":
         return await self._real.pop_item()
 
     async def clear_session(self) -> None:
