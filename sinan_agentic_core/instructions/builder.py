@@ -86,7 +86,8 @@ class InstructionBuilder:
         budget = self._ctx_attr("_turn_budget")
         if budget is None:
             return None
-        return budget.build_instruction_section()
+        section: str = budget.build_instruction_section()
+        return section
 
     def extra_sections(self) -> list[tuple[str, str]]:
         """Additional named sections appended after the main sections.
@@ -106,7 +107,15 @@ class InstructionBuilder:
         Override to reorder, add, or remove sections.
         Extra sections from extra_sections() are always appended after these.
         """
-        return ["persona", "domain_knowledge", "context_section", "steps", "rules", "output_format", "turn_budget_section"]
+        return [
+            "persona",
+            "domain_knowledge",
+            "context_section",
+            "steps",
+            "rules",
+            "output_format",
+            "turn_budget_section",
+        ]
 
     # ------------------------------------------------------------------ #
     # Assembly

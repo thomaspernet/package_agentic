@@ -5,7 +5,7 @@ Define input validation guardrails here.
 Example:
     def validate_input(ctx, input_data: dict) -> tuple[bool, str]:
         '''Validate input data.
-        
+
         Returns:
             (is_valid, error_message)
         '''

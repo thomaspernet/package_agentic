@@ -11,7 +11,7 @@ Usage:
 """
 
 import logging
-from typing import Optional
+from typing import Any, cast
 
 from agents import Agent
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def create_agent_from_registry(
     agent_name: str,
-    model_override: Optional[str] = None,
+    model_override: str | None = None,
 ) -> Agent:
     """Build an Agent instance from registry definitions.
 
@@ -54,9 +54,7 @@ def create_agent_from_registry(
     agent_def = agent_registry.get(agent_name)
     if not agent_def:
         available = agent_registry.list_all()
-        raise ValueError(
-            f"Agent '{agent_name}' not found. Available: {available}"
-        )
+        raise ValueError(f"Agent '{agent_name}' not found. Available: {available}")
 
     tools = tool_registry.get_tool_functions(agent_def.tools)
 
@@ -64,5 +62,5 @@ def create_agent_from_registry(
         name=agent_def.name,
         instructions=agent_def.instructions,
         model=model_override or agent_def.model,
-        tools=tools,
+        tools=cast(list[Any], tools),
     )

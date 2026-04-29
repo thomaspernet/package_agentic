@@ -3,8 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
-
+from sinan_agentic_core.services.chat import _usage_to_dict
 from sinan_agentic_core.services.events import (
     AgentCompleteEvent,
     AgentStartEvent,
@@ -17,9 +16,7 @@ from sinan_agentic_core.services.events import (
     ToolCallEvent,
 )
 from sinan_agentic_core.services.hooks import StreamingRunHooks
-from sinan_agentic_core.services.chat import _usage_to_dict
 from sinan_agentic_core.session.agent_session import AgentSession
-
 
 # -- Event dataclasses ---------------------------------------------------------
 
@@ -202,9 +199,9 @@ class TestChat:
     @staticmethod
     def _get_chat_module():
         import sys
+
         # Import to ensure the module is loaded, then get from sys.modules
         # to avoid the __init__.py shadowing the module with the function
-        import sinan_agentic_core.services.chat  # noqa: F811
         return sys.modules["sinan_agentic_core.services.chat"]
 
     async def test_chat_returns_usage(self):
@@ -227,9 +224,7 @@ class TestChat:
             with patch.object(chat_mod, "Runner") as mock_runner:
                 mock_runner.run = AsyncMock(return_value=mock_result)
 
-                result = await chat_mod.chat(
-                    "Hi", agent_name="test_agent", session=session
-                )
+                result = await chat_mod.chat("Hi", agent_name="test_agent", session=session)
 
         assert result["success"] is True
         assert result["response"] == "Hello!"
@@ -245,9 +240,7 @@ class TestChat:
         with patch.object(chat_mod, "create_agent_from_registry") as mock_factory:
             mock_factory.side_effect = ValueError("Agent not found")
 
-            result = await chat_mod.chat(
-                "Hi", agent_name="missing", session=session
-            )
+            result = await chat_mod.chat("Hi", agent_name="missing", session=session)
 
         assert result["success"] is False
         assert "Agent not found" in result["error"]
@@ -272,9 +265,7 @@ class TestChat:
             with patch.object(chat_mod, "Runner") as mock_runner:
                 mock_runner.run = AsyncMock(return_value=mock_result)
 
-                result = await chat_mod.chat(
-                    "Hi", agent_name="a", session=session, context=Mock()
-                )
+                result = await chat_mod.chat("Hi", agent_name="a", session=session, context=Mock())
 
         assert result["success"] is True
         # Verify context was forwarded to Runner.run
@@ -289,7 +280,7 @@ class TestChatWithHooks:
     @staticmethod
     def _get_chat_module():
         import sys
-        import sinan_agentic_core.services.chat  # noqa: F811
+
         return sys.modules["sinan_agentic_core.services.chat"]
 
     async def test_yields_thinking_and_answer(self):
@@ -387,7 +378,7 @@ class TestChatStreamed:
     @staticmethod
     def _get_chat_module():
         import sys
-        import sinan_agentic_core.services.chat  # noqa: F811
+
         return sys.modules["sinan_agentic_core.services.chat"]
 
     async def test_yields_stream_events(self):
@@ -517,9 +508,7 @@ class TestChatStreamed:
             mock_factory.side_effect = RuntimeError("Stream failed")
 
             events = []
-            async for event in chat_mod.chat_streamed(
-                "Hi", agent_name="missing", session=session
-            ):
+            async for event in chat_mod.chat_streamed("Hi", agent_name="missing", session=session):
                 events.append(event)
 
         assert any(e["event"] == "error" for e in events)

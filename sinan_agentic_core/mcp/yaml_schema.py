@@ -29,12 +29,16 @@ from pydantic import BaseModel
 
 
 class MCPAnnotationsConfig(BaseModel):
-    """MCP tool annotations from tools.yaml."""
+    """MCP tool annotations from tools.yaml.
 
-    readOnlyHint: bool | None = None
-    openWorldHint: bool | None = None
-    destructiveHint: bool | None = None
-    idempotentHint: bool | None = None
+    Field names mirror the MCP protocol's camelCase wire format, so ruff's
+    snake_case rule (N815) is suppressed per-line.
+    """
+
+    readOnlyHint: bool | None = None  # noqa: N815 — MCP protocol field name
+    openWorldHint: bool | None = None  # noqa: N815 — MCP protocol field name
+    destructiveHint: bool | None = None  # noqa: N815 — MCP protocol field name
+    idempotentHint: bool | None = None  # noqa: N815 — MCP protocol field name
 
 
 class MCPToolConfig(BaseModel):

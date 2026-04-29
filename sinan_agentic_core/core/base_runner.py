@@ -8,15 +8,26 @@ Also retains run_agent() for backward compatibility.
 
 import json
 import logging
-from typing import Optional, Dict, Any, List, Callable
+from collections.abc import Callable
+from typing import Any
 
-from agents import Agent, Runner, RunContextWrapper, RunHooks, ItemHelpers, Usage
+from agents import (
+    Agent,
+    ItemHelpers,
+    ModelSettings,
+    RunContextWrapper,
+    RunHooks,
+    Runner,
+    Usage,
+)
+from agents.items import TResponseInputItem
 from openai.types.responses import ResponseCompletedEvent, ResponseTextDeltaEvent
 
-from ..session import AgentSession
-from ..models.context import AgentContext
 from ..models import outputs as output_models
-from ..registry import get_agent_registry, get_tool_registry, get_guardrail_registry
+from ..models.context import AgentContext
+from ..registry import get_agent_registry, get_guardrail_registry, get_tool_registry
+from ..registry.agent_registry import AgentDefinition
+from ..session import AgentSession, ConversationHistory
 from .capabilities import Capability
 from .errors import structured_tool_error
 from .tool_error_recovery import ToolErrorRecovery
@@ -38,16 +49,15 @@ class BaseAgentRunner:
     - Streaming: Runner.run_streamed() with event callbacks -> returns final_output
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize registries and build tool/guardrail mappings."""
         self.agent_registry = get_agent_registry()
         self.tool_registry = get_tool_registry()
         self.guardrail_registry = get_guardrail_registry()
-        self.last_usage: Optional[Dict[str, Any]] = None
+        self.last_usage: dict[str, Any] | None = None
 
         self.tool_map = {
-            name: tool_def.function
-            for name, tool_def in self.tool_registry._tools.items()
+            name: tool_def.function for name, tool_def in self.tool_registry._tools.items()
         }
 
         self.guardrail_map = {
@@ -56,9 +66,11 @@ class BaseAgentRunner:
         }
 
         logger.debug(f"Loaded {len(self.tool_map)} tools: {list(self.tool_map.keys())}")
-        logger.debug(f"Loaded {len(self.guardrail_map)} guardrails: {list(self.guardrail_map.keys())}")
+        logger.debug(
+            f"Loaded {len(self.guardrail_map)} guardrails: {list(self.guardrail_map.keys())}"
+        )
 
-    def setup_context(self, **context_data) -> AgentContext:
+    def setup_context(self, **context_data: Any) -> AgentContext:
         """Setup context with provided data.
 
         Args:
@@ -71,8 +83,8 @@ class BaseAgentRunner:
 
     def setup_session(
         self,
-        session_id: Optional[str] = None,
-        initial_history: Optional[list] = None,
+        session_id: str | None = None,
+        initial_history: list[Any] | None = None,
     ) -> AgentSession:
         """Setup session for agent execution.
 
@@ -85,17 +97,23 @@ class BaseAgentRunner:
         """
         if session_id is None:
             import uuid
+
             session_id = str(uuid.uuid4())
 
-        return AgentSession(session_id=session_id, initial_history=initial_history)
+        history: ConversationHistory | None = None
+        if initial_history:
+            history = ConversationHistory()
+            history.messages = list(initial_history)
+
+        return AgentSession(session_id=session_id, initial_history=history)
 
     async def create_agent(
         self,
         agent_name: str,
         context: Any,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
-        capabilities: Optional[List[Capability]] = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
+        capabilities: list[Capability] | None = None,
     ) -> Agent:
         """Create an agent instance with proper tools and configuration.
 
@@ -126,6 +144,7 @@ class BaseAgentRunner:
         handoffs = await self._build_handoffs(agent_def.handoffs, context)
         output_type = self._resolve_output_type(agent_def.output_dataclass)
 
+        model_settings: ModelSettings | None
         if model_settings_override is not None:
             model_settings = model_settings_override
         else:
@@ -166,15 +185,15 @@ class BaseAgentRunner:
         context: Any,
         session: AgentSession,
         streaming: bool = False,
-        on_event: Optional[Callable] = None,
+        on_event: Callable[..., Any] | None = None,
         fallback_on_overflow: bool = False,
-        fallback_prompt_builder: Optional[Callable] = None,
+        fallback_prompt_builder: Callable[..., Any] | None = None,
         max_turns: int = 10,
         input_text: str = "",
-        turn_budget: Optional[TurnBudget] = None,
-        error_recovery: Optional[ToolErrorRecovery] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        turn_budget: TurnBudget | None = None,
+        error_recovery: ToolErrorRecovery | bool | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run an agent and return its final_output directly.
 
@@ -213,6 +232,8 @@ class BaseAgentRunner:
         # Auto-create error recovery if True was passed
         if error_recovery is True:
             error_recovery = ToolErrorRecovery(tool_registry=self.tool_registry)
+        elif error_recovery is False:
+            error_recovery = None
 
         capabilities = self._build_run_capabilities(
             agent_def=agent_def,
@@ -233,14 +254,23 @@ class BaseAgentRunner:
 
         if streaming:
             return await self._execute_streamed(
-                agent_name, context, session, on_event, sdk_max_turns, input_text,
+                agent_name,
+                context,
+                session,
+                on_event,
+                sdk_max_turns,
+                input_text,
                 capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
             )
         elif fallback_on_overflow:
             return await self._execute_with_fallback(
-                agent_name, context, session, sdk_max_turns, input_text,
+                agent_name,
+                context,
+                session,
+                sdk_max_turns,
+                input_text,
                 fallback_prompt_builder,
                 capabilities=capabilities,
                 model_override=model_override,
@@ -248,7 +278,11 @@ class BaseAgentRunner:
             )
         else:
             return await self._execute_basic(
-                agent_name, context, session, sdk_max_turns, input_text,
+                agent_name,
+                context,
+                session,
+                sdk_max_turns,
+                input_text,
                 capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
@@ -261,14 +295,15 @@ class BaseAgentRunner:
         session: AgentSession,
         max_turns: int,
         input_text: str,
-        capabilities: Optional[List[Capability]] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        capabilities: list[Capability] | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run agent via Runner.run() and return final_output."""
         capabilities = capabilities or []
         agent = await self.create_agent(
-            agent_name=agent_name, context=context,
+            agent_name=agent_name,
+            context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
             capabilities=capabilities,
@@ -278,7 +313,7 @@ class BaseAgentRunner:
 
         logger.info(f"Running agent: {agent_name}")
 
-        run_kwargs: Dict[str, Any] = {
+        run_kwargs: dict[str, Any] = {
             "starting_agent": agent,
             "input": input_text,
             "session": session,
@@ -303,10 +338,10 @@ class BaseAgentRunner:
         session: AgentSession,
         max_turns: int,
         input_text: str,
-        fallback_prompt_builder: Optional[Callable],
-        capabilities: Optional[List[Capability]] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        fallback_prompt_builder: Callable[..., Any] | None,
+        capabilities: list[Capability] | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run agent with automatic fallback on context overflow.
 
@@ -316,7 +351,8 @@ class BaseAgentRunner:
         capabilities = capabilities or []
         agent_def = self._get_agent_definition(agent_name)
         agent = await self.create_agent(
-            agent_name=agent_name, context=context,
+            agent_name=agent_name,
+            context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
             capabilities=capabilities,
@@ -339,10 +375,7 @@ class BaseAgentRunner:
 
         except Exception as err:
             err_str = str(err)
-            is_recoverable = (
-                "Max turns" in err_str
-                or "context_length_exceeded" in err_str
-            )
+            is_recoverable = "Max turns" in err_str or "context_length_exceeded" in err_str
             if not is_recoverable:
                 raise
 
@@ -357,14 +390,14 @@ class BaseAgentRunner:
             builder = fallback_prompt_builder or self._default_fallback_prompt_builder
             prompt = builder(instructions, collecting.raw_items, agent_def)
 
-            from openai import AsyncOpenAI
             from agents.models._openai_shared import get_default_openai_key
+            from openai import AsyncOpenAI
 
             api_key = get_default_openai_key()
             client = AsyncOpenAI(api_key=api_key)
 
             output_type = self._resolve_output_type(agent_def.output_dataclass)
-            use_json = output_type and output_type != str
+            use_json = output_type and output_type is not str
 
             # Reuse or build the SDK's AgentOutputSchema so the fallback
             # LLM sees the identical JSON schema (including the "response"
@@ -372,17 +405,19 @@ class BaseAgentRunner:
             output_schema = None
             if use_json:
                 from agents.agent_output import AgentOutputSchema, AgentOutputSchemaBase
+
                 if isinstance(output_type, AgentOutputSchemaBase):
                     output_schema = output_type
                 else:
                     output_schema = AgentOutputSchema(
-                        output_type, strict_json_schema=False,
+                        output_type,
+                        strict_json_schema=False,
                     )
 
-            messages: list[Dict[str, str]] = []
+            messages: list[dict[str, str]] = []
             messages.append({"role": "user", "content": prompt})
 
-            kwargs: Dict[str, Any] = {
+            kwargs: dict[str, Any] = {
                 "model": model_override or agent_def.model or "gpt-4o-mini",
                 "messages": messages,
                 "temperature": 0.3,
@@ -426,12 +461,12 @@ class BaseAgentRunner:
         agent_name: str,
         context: Any,
         session: AgentSession,
-        on_event: Optional[Callable],
+        on_event: Callable[..., Any] | None,
         max_turns: int,
         input_text: str,
-        capabilities: Optional[List[Capability]] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        capabilities: list[Capability] | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run agent with token-level streaming via Runner.run_streamed().
 
@@ -440,7 +475,8 @@ class BaseAgentRunner:
         """
         capabilities = capabilities or []
         agent = await self.create_agent(
-            agent_name=agent_name, context=context,
+            agent_name=agent_name,
+            context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
             capabilities=capabilities,
@@ -454,7 +490,7 @@ class BaseAgentRunner:
 
         logger.info(f"Running agent (streamed): {agent_name}")
 
-        run_kwargs: Dict[str, Any] = {
+        run_kwargs: dict[str, Any] = {
             "starting_agent": agent,
             "input": history,
             "context": context,
@@ -467,7 +503,7 @@ class BaseAgentRunner:
 
         result = Runner.run_streamed(**run_kwargs)
 
-        tools_called: List[str] = []
+        tools_called: list[str] = []
 
         total_input_tokens = 0
         total_output_tokens = 0
@@ -491,39 +527,43 @@ class BaseAgentRunner:
                 item = event.item
                 if item.type == "tool_call_item":
                     raw = getattr(item, "raw_item", None)
-                    name = (
-                        getattr(item, "name", None)
-                        or getattr(raw, "name", None)
-                        or "unknown"
-                    )
+                    name = getattr(item, "name", None) or getattr(raw, "name", None) or "unknown"
                     tools_called.append(name)
                     if on_event:
-                        on_event({
-                            "event": "tool_call",
-                            "data": {
-                                "tool": name,
-                                "message": f"Calling {name.replace('_', ' ')}...",
-                            },
-                        })
+                        on_event(
+                            {
+                                "event": "tool_call",
+                                "data": {
+                                    "tool": name,
+                                    "message": f"Calling {name.replace('_', ' ')}...",
+                                },
+                            }
+                        )
                 elif item.type == "tool_call_output_item":
                     if on_event:
-                        on_event({
-                            "event": "tool_output",
-                            "data": {"output": str(item.output)[:500]},
-                        })
+                        on_event(
+                            {
+                                "event": "tool_output",
+                                "data": {"output": str(item.output)[:500]},
+                            }
+                        )
                 elif item.type == "message_output_item":
                     if on_event:
-                        on_event({
-                            "event": "message_output",
-                            "data": {"text": ItemHelpers.text_message_output(item)},
-                        })
+                        on_event(
+                            {
+                                "event": "message_output",
+                                "data": {"text": ItemHelpers.text_message_output(item)},
+                            }
+                        )
 
             elif event.type == "agent_updated_stream_event":
                 if on_event:
-                    on_event({
-                        "event": "agent_updated",
-                        "data": {"agent": event.new_agent.name},
-                    })
+                    on_event(
+                        {
+                            "event": "agent_updated",
+                            "data": {"agent": event.new_agent.name},
+                        }
+                    )
 
         response = result.final_output
         await session.add_items([{"role": "assistant", "content": response}])
@@ -540,10 +580,12 @@ class BaseAgentRunner:
         self.last_usage = usage
 
         if on_event:
-            on_event({
-                "event": "answer",
-                "data": {"response": response, "tools_called": tools_called, "usage": usage},
-            })
+            on_event(
+                {
+                    "event": "answer",
+                    "data": {"response": response, "tools_called": tools_called, "usage": usage},
+                }
+            )
 
         logger.info(f"Agent '{agent_name}' (streamed) completed, {len(tools_called)} tool calls")
         return response
@@ -553,7 +595,7 @@ class BaseAgentRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _build_usage_dict(usage: Usage) -> Dict[str, Any]:
+    def _build_usage_dict(usage: Usage) -> dict[str, Any]:
         """Convert a Usage object to a plain dict."""
         return {
             "requests": usage.requests,
@@ -569,7 +611,7 @@ class BaseAgentRunner:
         }
 
     @staticmethod
-    def _aggregate_usage(result: Any) -> Dict[str, Any]:
+    def _aggregate_usage(result: Any) -> dict[str, Any]:
         """Aggregate token usage from a non-streaming RunResult."""
         usage = Usage()
         try:
@@ -588,7 +630,7 @@ class BaseAgentRunner:
         session: AgentSession,
         context: Any,
         input_message: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run agent and return structured output with token usage.
 
         .. deprecated::
@@ -631,7 +673,7 @@ class BaseAgentRunner:
     # Private helpers — agent construction
     # ------------------------------------------------------------------ #
 
-    def _get_agent_definition(self, agent_name: str):
+    def _get_agent_definition(self, agent_name: str) -> AgentDefinition:
         """Get agent definition from registry with validation.
 
         Args:
@@ -647,12 +689,11 @@ class BaseAgentRunner:
         if not agent_def:
             available = self.agent_registry.list_all()
             raise ValueError(
-                f"Agent '{agent_name}' not found in registry. "
-                f"Available agents: {available}"
+                f"Agent '{agent_name}' not found in registry. " f"Available agents: {available}"
             )
         return agent_def
 
-    def _build_instructions(self, agent_def, ctx_wrapper: RunContextWrapper) -> str:
+    def _build_instructions(self, agent_def: Any, ctx_wrapper: RunContextWrapper[Any]) -> str:
         """Build agent instructions, handling both static and dynamic.
 
         Args:
@@ -665,9 +706,9 @@ class BaseAgentRunner:
         instructions = agent_def.instructions
         if callable(instructions):
             instructions = instructions(ctx_wrapper, agent_def)
-        return instructions
+        return str(instructions)
 
-    async def _build_tools(self, tool_names: list, context: Any) -> list:
+    async def _build_tools(self, tool_names: list[str], context: Any) -> list[Any]:
         """Build agent tools list, handling regular tools and agents-as-tools.
 
         Args:
@@ -677,7 +718,7 @@ class BaseAgentRunner:
         Returns:
             List of configured tool functions
         """
-        agent_tools = []
+        agent_tools: list[Any] = []
 
         for tool_name in tool_names:
             if tool_name in self.tool_map:
@@ -688,7 +729,7 @@ class BaseAgentRunner:
                     context=context,
                 )
                 agent_def = self.agent_registry._agents[tool_name]
-                as_tool_kwargs: Dict[str, Any] = {
+                as_tool_kwargs: dict[str, Any] = {
                     "tool_name": tool_name,
                     "tool_description": agent_def.description,
                     "failure_error_function": structured_tool_error,
@@ -699,7 +740,7 @@ class BaseAgentRunner:
                 budget = agent_def.as_tool_turn_budget
                 if budget:
                     budget.reset()
-                    sub_caps: List[Capability] = [budget]
+                    sub_caps: list[Capability] = [budget]
                     self._apply_dynamic_instructions(tool_agent, sub_caps)
                     tool_agent.tools.append(request_extension_tool)
                     as_tool_kwargs["hooks"] = _CompositeHooks(sub_caps)
@@ -713,7 +754,7 @@ class BaseAgentRunner:
 
         return agent_tools
 
-    def _build_hosted_tools(self, hosted_tools: list) -> list:
+    def _build_hosted_tools(self, hosted_tools: list[Any]) -> list[Any]:
         """Build hosted tools list (e.g., WebSearchTool, FileSearchTool).
 
         Hosted tools are OpenAI SDK tools that run on LLM servers alongside
@@ -726,7 +767,7 @@ class BaseAgentRunner:
         Returns:
             List of hosted tool instances
         """
-        tools = []
+        tools: list[Any] = []
 
         for tool_factory in hosted_tools:
             try:
@@ -742,7 +783,7 @@ class BaseAgentRunner:
 
         return tools
 
-    def _build_guardrails(self, guardrail_names: list) -> list:
+    def _build_guardrails(self, guardrail_names: list[str]) -> list[Any]:
         """Build agent guardrails list.
 
         Args:
@@ -751,7 +792,7 @@ class BaseAgentRunner:
         Returns:
             List of configured guardrail functions
         """
-        agent_guardrails = []
+        agent_guardrails: list[Any] = []
 
         for guardrail_name in guardrail_names:
             if guardrail_name in self.guardrail_map:
@@ -761,7 +802,7 @@ class BaseAgentRunner:
 
         return agent_guardrails
 
-    async def _build_handoffs(self, handoff_names: list, context: Any) -> list:
+    async def _build_handoffs(self, handoff_names: list[str], context: Any) -> list[Any]:
         """Build agent handoffs list.
 
         Args:
@@ -771,7 +812,7 @@ class BaseAgentRunner:
         Returns:
             List of configured handoff agent instances
         """
-        handoffs = []
+        handoffs: list[Any] = []
 
         for handoff_name in handoff_names:
             if handoff_name in self.agent_registry._agents:
@@ -785,7 +826,7 @@ class BaseAgentRunner:
 
         return handoffs
 
-    def _resolve_output_type(self, output_dataclass):
+    def _resolve_output_type(self, output_dataclass: Any) -> type[Any]:
         """Resolve output type from agent definition.
 
         Args:
@@ -799,14 +840,18 @@ class BaseAgentRunner:
 
         if isinstance(output_dataclass, str):
             try:
-                return getattr(output_models, output_dataclass)
+                resolved: type[Any] = getattr(output_models, output_dataclass)
+                return resolved
             except AttributeError:
                 logger.warning(f"Output dataclass '{output_dataclass}' not found")
                 return str
 
-        return output_dataclass
+        cls: type[Any] = output_dataclass
+        return cls
 
-    def _build_model_settings(self, agent_def, ctx_wrapper: RunContextWrapper):
+    def _build_model_settings(
+        self, agent_def: Any, ctx_wrapper: RunContextWrapper[Any]
+    ) -> ModelSettings | None:
         """Build model settings if provided.
 
         Args:
@@ -820,22 +865,23 @@ class BaseAgentRunner:
             return None
 
         try:
-            return agent_def.model_settings_fn(ctx_wrapper)
+            settings: ModelSettings | None = agent_def.model_settings_fn(ctx_wrapper)
+            return settings
         except Exception as e:
             logger.error(f"Error building model settings: {e}")
             return None
 
     def _build_agent_kwargs(
         self,
-        agent_def,
+        agent_def: Any,
         instructions: str,
-        tools: list,
-        guardrails: list,
-        handoffs: list,
-        output_type,
-        model_settings,
-        model_override: Optional[str] = None,
-    ) -> dict:
+        tools: list[Any],
+        guardrails: list[Any],
+        handoffs: list[Any],
+        output_type: Any,
+        model_settings: Any,
+        model_override: str | None = None,
+    ) -> dict[str, Any]:
         """Build agent constructor kwargs.
 
         Args:
@@ -851,7 +897,7 @@ class BaseAgentRunner:
         Returns:
             Dictionary of agent constructor arguments
         """
-        agent_kwargs = {
+        agent_kwargs: dict[str, Any] = {
             "name": agent_def.name,
             "instructions": instructions,
             "tools": tools,
@@ -875,10 +921,10 @@ class BaseAgentRunner:
     @staticmethod
     def _build_run_capabilities(
         agent_def: Any,
-        turn_budget: Optional[TurnBudget],
-        error_recovery: Optional[ToolErrorRecovery],
-        on_event: Optional[Callable],
-    ) -> List[Capability]:
+        turn_budget: TurnBudget | None,
+        error_recovery: ToolErrorRecovery | None,
+        on_event: Callable[..., Any] | None,
+    ) -> list[Capability]:
         """Compose the effective capability list for one ``execute()`` call.
 
         Declarative capabilities (``agent_def.capabilities``) are cloned for
@@ -886,7 +932,7 @@ class BaseAgentRunner:
         inspect their state after the run. Every effective capability is
         reset and gets ``on_event`` wired through.
         """
-        effective: List[Capability] = []
+        effective: list[Capability] = []
 
         for cap in agent_def.capabilities:
             clone = cap.clone()
@@ -906,7 +952,7 @@ class BaseAgentRunner:
     @staticmethod
     def _apply_dynamic_instructions(
         agent: Agent,
-        capabilities: List[Capability],
+        capabilities: list[Capability],
     ) -> None:
         """Wrap agent.instructions to merge in capability fragments per turn.
 
@@ -921,23 +967,29 @@ class BaseAgentRunner:
         if callable(base_instructions):
             original_fn = base_instructions
 
-            def dynamic_instructions(ctx_wrapper, agent_obj):
+            def dynamic_instructions(
+                ctx_wrapper: RunContextWrapper[Any], agent_obj: Agent[Any]
+            ) -> str:
                 base = original_fn(ctx_wrapper, agent_obj)
+                if not isinstance(base, str):
+                    base = str(base)
                 return _merge_capability_instructions(base, ctx_wrapper, capabilities)
 
             agent.instructions = dynamic_instructions
         else:
             static_text = base_instructions or ""
 
-            def dynamic_from_static(ctx_wrapper, agent_obj):
+            def dynamic_from_static(
+                ctx_wrapper: RunContextWrapper[Any], agent_obj: Agent[Any]
+            ) -> str:
                 return _merge_capability_instructions(static_text, ctx_wrapper, capabilities)
 
             agent.instructions = dynamic_from_static
 
     @staticmethod
     def _build_hooks(
-        capabilities: List[Capability],
-    ) -> Optional[RunHooks]:
+        capabilities: list[Capability],
+    ) -> RunHooks | None:
         """Wrap capabilities in a single RunHooks adapter, or None when empty."""
         if not capabilities:
             return None
@@ -950,7 +1002,7 @@ class BaseAgentRunner:
     @staticmethod
     def _default_fallback_prompt_builder(
         instructions: str,
-        raw_items: List[Dict[str, Any]],
+        raw_items: list[dict[str, Any]],
         agent_def: Any,
     ) -> str:
         """Default fallback prompt: concatenate instructions + tool outputs.
@@ -976,8 +1028,7 @@ class BaseAgentRunner:
                 tool_outputs.append(str(output)[:2000])
 
         context_str = (
-            "\n\n---\n\n".join(tool_outputs) if tool_outputs
-            else "(no tool outputs collected)"
+            "\n\n---\n\n".join(tool_outputs) if tool_outputs else "(no tool outputs collected)"
         )
         return (
             f"{instructions}\n\n"
@@ -996,7 +1047,7 @@ class _CollectingSessionWrapper:
 
     def __init__(self, real_session: AgentSession) -> None:
         self._real = real_session
-        self.raw_items: List[Dict[str, Any]] = []
+        self.raw_items: list[dict[str, Any]] = []
 
     @property
     def session_id(self) -> str:
@@ -1007,21 +1058,21 @@ class _CollectingSessionWrapper:
         self._real.session_id = value
 
     @property
-    def session_settings(self):
+    def session_settings(self) -> Any:
         return getattr(self._real, "session_settings", None)
 
     @session_settings.setter
-    def session_settings(self, value) -> None:
+    def session_settings(self, value: Any) -> None:
         self._real.session_settings = value
 
-    async def get_items(self, limit: Optional[int] = None) -> list:
+    async def get_items(self, limit: int | None = None) -> list[Any]:
         return await self._real.get_items(limit)
 
-    async def add_items(self, items: list) -> None:
+    async def add_items(self, items: list[Any]) -> None:
         self.raw_items.extend(items)
         await self._real.add_items(items)
 
-    async def pop_item(self):
+    async def pop_item(self) -> "TResponseInputItem | None":
         return await self._real.pop_item()
 
     async def clear_session(self) -> None:
@@ -1036,8 +1087,8 @@ class _CollectingSessionWrapper:
 
 def _merge_capability_instructions(
     base: str,
-    ctx_wrapper: RunContextWrapper,
-    capabilities: List[Capability],
+    ctx_wrapper: RunContextWrapper[Any],
+    capabilities: list[Capability],
 ) -> str:
     """Append each capability's current instruction fragment to base."""
     parts = [base]
@@ -1057,34 +1108,36 @@ class _CompositeHooks(RunHooks):
     receives them directly.
     """
 
-    def __init__(self, capabilities: List[Capability]) -> None:
+    def __init__(self, capabilities: list[Capability]) -> None:
         self._capabilities = capabilities
 
-    async def on_agent_start(self, context, agent):
+    async def on_agent_start(self, context: Any, agent: Any) -> None:
         for cap in self._capabilities:
             cap.on_agent_start(context, agent)
 
-    async def on_agent_end(self, context, agent, output):
+    async def on_agent_end(self, context: Any, agent: Any, output: Any) -> None:
         for cap in self._capabilities:
             cap.on_agent_end(context, agent, output)
 
-    async def on_handoff(self, context, from_agent, to_agent):
+    async def on_handoff(self, context: Any, from_agent: Any, to_agent: Any) -> None:
         for cap in self._capabilities:
             cap.on_handoff(context, from_agent, to_agent)
 
-    async def on_tool_start(self, context, agent, tool):
+    async def on_tool_start(self, context: Any, agent: Any, tool: Any) -> None:
         args = getattr(context, "tool_arguments", "")
         for cap in self._capabilities:
             cap.on_tool_start(context, tool, args)
 
-    async def on_tool_end(self, context, agent, tool, result):
+    async def on_tool_end(self, context: Any, agent: Any, tool: Any, result: Any) -> None:
         for cap in self._capabilities:
             cap.on_tool_end(context, tool, result)
 
-    async def on_llm_start(self, context, agent, system_prompt, input_items):
+    async def on_llm_start(
+        self, context: Any, agent: Any, system_prompt: Any, input_items: Any
+    ) -> None:
         for cap in self._capabilities:
             cap.on_llm_start(context, agent, system_prompt, input_items)
 
-    async def on_llm_end(self, context, agent, response):
+    async def on_llm_end(self, context: Any, agent: Any, response: Any) -> None:
         for cap in self._capabilities:
             cap.on_llm_end(context, agent, response)

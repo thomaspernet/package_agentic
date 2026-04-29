@@ -12,19 +12,19 @@ Public API::
     from sinan_agentic_core.services import StreamingHelper, AgentStartEvent, ...
 """
 
+from .chat import chat, chat_streamed, chat_with_hooks
 from .events import (
-    StreamingHelper,
-    BaseEvent,
-    AgentStartEvent,
     AgentCompleteEvent,
+    AgentStartEvent,
+    AnswerEvent,
+    BaseEvent,
+    ErrorEvent,
+    StreamingHelper,
+    StreamingTextEvent,
     ThinkingEvent,
     ToolCallEvent,
-    StreamingTextEvent,
-    AnswerEvent,
-    ErrorEvent,
 )
 from .hooks import StreamingRunHooks
-from .chat import chat, chat_with_hooks, chat_streamed
 
 __all__ = [
     # Chat

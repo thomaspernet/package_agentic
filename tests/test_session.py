@@ -8,7 +8,6 @@ from sinan_agentic_core.core.turn_budget import TurnBudget
 from sinan_agentic_core.session.agent_session import AgentSession, ConversationHistory
 from sinan_agentic_core.session.sqlite_store import SQLiteSessionStore
 
-
 # -- ConversationHistory -------------------------------------------------------
 
 
@@ -49,21 +48,25 @@ class TestAgentSession:
         assert items[0]["content"] == "Hello"
 
     async def test_get_items_with_limit(self, session):
-        await session.add_items([
-            {"role": "user", "content": "msg1"},
-            {"role": "assistant", "content": "msg2"},
-            {"role": "user", "content": "msg3"},
-        ])
+        await session.add_items(
+            [
+                {"role": "user", "content": "msg1"},
+                {"role": "assistant", "content": "msg2"},
+                {"role": "user", "content": "msg3"},
+            ]
+        )
         items = await session.get_items(limit=2)
         assert len(items) == 2
         assert items[0]["content"] == "msg2"
 
     async def test_skips_empty_content(self, session):
-        await session.add_items([
-            {"role": "user", "content": ""},
-            {"role": "user", "content": "   "},
-            {"role": "user", "content": "valid"},
-        ])
+        await session.add_items(
+            [
+                {"role": "user", "content": ""},
+                {"role": "user", "content": "   "},
+                {"role": "user", "content": "valid"},
+            ]
+        )
         items = await session.get_items()
         assert len(items) == 1
         assert items[0]["content"] == "valid"
@@ -105,20 +108,26 @@ class TestAgentSession:
         assert isinstance(h, ConversationHistory)
 
     async def test_add_items_with_name_and_tool_call_id(self, session):
-        await session.add_items([
-            {"role": "assistant", "content": "hi", "name": "bot"},
-            {"role": "tool", "content": "result", "tool_call_id": "tc_123"},
-        ])
+        await session.add_items(
+            [
+                {"role": "assistant", "content": "hi", "name": "bot"},
+                {"role": "tool", "content": "result", "tool_call_id": "tc_123"},
+            ]
+        )
         items = await session.get_items()
         assert items[0]["name"] == "bot"
         assert items[1]["tool_call_id"] == "tc_123"
 
     async def test_structured_output_cleanup(self, session):
         """SDK returns structured output as list of dicts — session should extract text."""
-        await session.add_items([{
-            "role": "assistant",
-            "content": [{"text": '{"response": "parsed answer"}', "type": "output_text"}],
-        }])
+        await session.add_items(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"text": '{"response": "parsed answer"}', "type": "output_text"}],
+                }
+            ]
+        )
         items = await session.get_items()
         assert len(items) == 1
         assert '"parsed answer"' in items[0]["content"]
@@ -292,6 +301,7 @@ class TestAgentSessionRehydrate:
         tool = Mock()
         tool.name = "search"
         import json as _json
+
         original.on_tool_start(ctx, tool, _json.dumps({"q": "x"}))
         original.on_tool_end(ctx, tool, _json.dumps({"error": "boom"}))
 

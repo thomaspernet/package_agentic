@@ -193,9 +193,11 @@ class TestCallable:
 
 class TestTopLevelImport:
     def test_importable_from_sinan_agentic_core(self):
-        from sinan_agentic_core import InstructionBuilder as IB
-        assert IB is InstructionBuilder
+        import sinan_agentic_core as sac
+
+        assert sac.InstructionBuilder is InstructionBuilder
 
     def test_importable_from_instructions(self):
-        from sinan_agentic_core.instructions import InstructionBuilder as IB
-        assert IB is InstructionBuilder
+        from sinan_agentic_core import instructions
+
+        assert instructions.InstructionBuilder is InstructionBuilder

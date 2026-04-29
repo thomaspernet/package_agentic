@@ -84,10 +84,7 @@ class ToolCatalog:
         """
         if name not in self._raw_tools:
             available = ", ".join(sorted(self._raw_tools.keys()))
-            raise KeyError(
-                f"Tool '{name}' not found in tools.yaml. "
-                f"Available: {available}"
-            )
+            raise KeyError(f"Tool '{name}' not found in tools.yaml. " f"Available: {available}")
         raw = self._raw_tools[name]
         return ToolYamlEntry(**raw)
 
@@ -159,8 +156,7 @@ def load_tool_catalog(path: str | Path) -> ToolCatalog:
         import yaml
     except ImportError:
         raise ImportError(
-            "PyYAML is required for tool catalog loading. "
-            "Install it with: pip install pyyaml"
+            "PyYAML is required for tool catalog loading. " "Install it with: pip install pyyaml"
         )
 
     path = Path(path)

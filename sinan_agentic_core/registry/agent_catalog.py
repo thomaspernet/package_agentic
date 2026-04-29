@@ -30,7 +30,7 @@ Usage::
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -39,6 +39,11 @@ from .capability_registry import (
     CapabilityNotFoundError,
     get_capability_registry,
 )
+
+if TYPE_CHECKING:
+    from ..core.tool_error_recovery import ToolErrorRecovery
+    from ..core.turn_budget import TurnBudget
+    from ..mcp.yaml_schema import MCPServerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +194,7 @@ def _resolve_tools(
                 if group_name not in tool_groups:
                     available = ", ".join(sorted(tool_groups.keys()))
                     raise KeyError(
-                        f"Tool group '{group_name}' not found. "
-                        f"Available: {available}"
+                        f"Tool group '{group_name}' not found. " f"Available: {available}"
                     )
                 resolved.extend(tool_groups[group_name])
             elif "tool" in item:
@@ -204,9 +208,7 @@ def _resolve_tools(
 # ---------------------------------------------------------------------------
 
 
-def _parse_capabilities(
-    agent_name: str, raw: Any
-) -> list[CapabilityRef]:
+def _parse_capabilities(agent_name: str, raw: Any) -> list[CapabilityRef]:
     """Parse the ``capabilities:`` list on an agent entry and validate names.
 
     Accepts the explicit list form documented on :class:`CapabilityRef`.
@@ -233,9 +235,7 @@ def _parse_capabilities(
                     f"Agent '{agent_name}' capabilities[{index}] is missing "
                     f"the required 'name' key."
                 )
-            ref = CapabilityRef(
-                name=item["name"], config=item.get("config", {}) or {}
-            )
+            ref = CapabilityRef(name=item["name"], config=item.get("config", {}) or {})
         else:
             raise TypeError(
                 f"Agent '{agent_name}' capabilities[{index}] must be a "
@@ -291,10 +291,7 @@ class AgentCatalog:
         """
         if name not in self._raw_agents:
             available = ", ".join(sorted(self._raw_agents.keys()))
-            raise KeyError(
-                f"Agent '{name}' not found in agents.yaml. "
-                f"Available: {available}"
-            )
+            raise KeyError(f"Agent '{name}' not found in agents.yaml. " f"Available: {available}")
         raw = self._raw_agents[name]
         raw_budget = raw.get("turn_budget")
         budget_cfg = TurnBudgetConfig(**raw_budget) if raw_budget else None
@@ -304,12 +301,8 @@ class AgentCatalog:
         return AgentYamlEntry(
             model=raw["model"],
             description=raw["description"],
-            tools=_resolve_tools(
-                raw.get("tools", []), self._tool_groups, config
-            ),
-            knowledge_text=_resolve_knowledge(
-                raw.get("knowledge", []), self._knowledge
-            ),
+            tools=_resolve_tools(raw.get("tools", []), self._tool_groups, config),
+            knowledge_text=_resolve_knowledge(raw.get("knowledge", []), self._knowledge),
             max_turns=raw.get("max_turns"),
             turn_budget=budget_cfg,
             error_recovery=raw.get("error_recovery", True),
@@ -352,36 +345,25 @@ class AgentCatalog:
         Raises:
             KeyError: If the MCP server is not defined in agents.yaml.
         """
-        from ..mcp.yaml_schema import MCPServerConfig, MCPResourceConfig, MCPPromptConfig
+        from ..mcp.yaml_schema import MCPPromptConfig, MCPResourceConfig, MCPServerConfig
 
         if name not in self._raw_mcp_servers:
             available = ", ".join(sorted(self._raw_mcp_servers.keys()))
             raise KeyError(
-                f"MCP server '{name}' not found in agents.yaml. "
-                f"Available: {available}"
+                f"MCP server '{name}' not found in agents.yaml. " f"Available: {available}"
             )
 
         raw = self._raw_mcp_servers[name]
 
         # Resolve tools (expand groups, evaluate conditions)
-        tools = _resolve_tools(
-            raw.get("tools", []), self._tool_groups, config
-        )
-        write_tools = _resolve_tools(
-            raw.get("write_tools", []), self._tool_groups, config
-        )
+        tools = _resolve_tools(raw.get("tools", []), self._tool_groups, config)
+        write_tools = _resolve_tools(raw.get("write_tools", []), self._tool_groups, config)
 
         # Parse resources
-        resources = [
-            MCPResourceConfig(**r)
-            for r in raw.get("resources", [])
-        ]
+        resources = [MCPResourceConfig(**r) for r in raw.get("resources", [])]
 
         # Parse prompts
-        prompts = [
-            MCPPromptConfig(**p)
-            for p in raw.get("prompts", [])
-        ]
+        prompts = [MCPPromptConfig(**p) for p in raw.get("prompts", [])]
 
         return MCPServerConfig(
             name=name,
@@ -465,8 +447,7 @@ def load_agent_catalog(
         import yaml
     except ImportError:
         raise ImportError(
-            "PyYAML is required for agent catalog loading. "
-            "Install it with: pip install pyyaml"
+            "PyYAML is required for agent catalog loading. " "Install it with: pip install pyyaml"
         )
 
     path = Path(path)

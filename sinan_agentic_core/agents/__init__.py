@@ -4,7 +4,7 @@ Define your agents here by creating AgentDefinition instances and registering th
 
 Example:
     from sinan_agentic_core.registry import AgentDefinition, register_agent
-    
+
     my_agent = AgentDefinition(
         name="analyzer",
         description="Analyzes data and provides insights",

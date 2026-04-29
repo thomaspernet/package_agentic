@@ -8,10 +8,8 @@ from agents import RunContextWrapper
 
 from sinan_agentic_core.core.capabilities import Capability
 from sinan_agentic_core.core.tool_error_recovery import (
-    ToolErrorEntry,
     ToolErrorRecovery,
 )
-
 
 # ------------------------------------------------------------------ #
 # ToolErrorRecovery — basic tracking
@@ -81,9 +79,7 @@ class TestRecordToolResult:
 
     def test_status_failed_without_message_uses_fallback(self):
         recovery = ToolErrorRecovery()
-        recovery.record_tool_result(
-            "my_tool", json.dumps({"status": "failed"})
-        )
+        recovery.record_tool_result("my_tool", json.dumps({"status": "failed"}))
         assert recovery.has_errors
         summary = recovery.get_error_summary()
         assert "failed" in summary["my_tool"]["error"]
@@ -101,13 +97,9 @@ class TestRecordToolResult:
 
     def test_status_failed_clears_on_subsequent_success(self):
         recovery = ToolErrorRecovery()
-        recovery.record_tool_result(
-            "my_tool", json.dumps({"status": "failed", "message": "bad"})
-        )
+        recovery.record_tool_result("my_tool", json.dumps({"status": "failed", "message": "bad"}))
         assert recovery.has_errors
-        recovery.record_tool_result(
-            "my_tool", json.dumps({"status": "completed", "message": "ok"})
-        )
+        recovery.record_tool_result("my_tool", json.dumps({"status": "completed", "message": "ok"}))
         assert not recovery.has_errors
 
     def test_multiple_errors_same_tool(self):
@@ -121,12 +113,8 @@ class TestRecordToolResult:
 
     def test_different_args_resets_identical_count(self):
         recovery = ToolErrorRecovery()
-        recovery.record_tool_result(
-            "my_tool", json.dumps({"error": "fail"}), json.dumps({"a": 1})
-        )
-        recovery.record_tool_result(
-            "my_tool", json.dumps({"error": "fail"}), json.dumps({"a": 2})
-        )
+        recovery.record_tool_result("my_tool", json.dumps({"error": "fail"}), json.dumps({"a": 1}))
+        recovery.record_tool_result("my_tool", json.dumps({"error": "fail"}), json.dumps({"a": 2}))
         summary = recovery.get_error_summary()
         assert summary["my_tool"]["call_count"] == 2
         assert summary["my_tool"]["identical_count"] == 1  # reset because args differ
@@ -398,8 +386,8 @@ class TestBaseAgentRunnerIntegration:
     @pytest.fixture
     def _registries(self):
         from sinan_agentic_core.registry.agent_registry import AgentDefinition, AgentRegistry
-        from sinan_agentic_core.registry.tool_registry import ToolRegistry
         from sinan_agentic_core.registry.guardrail_registry import GuardrailRegistry
+        from sinan_agentic_core.registry.tool_registry import ToolRegistry
 
         agent_reg = AgentRegistry()
         tool_reg = ToolRegistry()
@@ -423,7 +411,10 @@ class TestBaseAgentRunnerIntegration:
         with (
             patch("sinan_agentic_core.core.base_runner.get_agent_registry", return_value=agent_reg),
             patch("sinan_agentic_core.core.base_runner.get_tool_registry", return_value=tool_reg),
-            patch("sinan_agentic_core.core.base_runner.get_guardrail_registry", return_value=guardrail_reg),
+            patch(
+                "sinan_agentic_core.core.base_runner.get_guardrail_registry",
+                return_value=guardrail_reg,
+            ),
         ):
             return BaseAgentRunner()
 
@@ -466,6 +457,7 @@ class TestBaseAgentRunnerIntegration:
 
     def test_build_hooks_none_when_no_capabilities(self):
         from sinan_agentic_core.core.base_runner import BaseAgentRunner
+
         assert BaseAgentRunner._build_hooks([]) is None
 
     def test_build_hooks_returns_composite(self):
@@ -493,8 +485,8 @@ class TestBaseAgentRunnerIntegration:
         mock_result = Mock()
         mock_result.final_output = "test output"
 
-        with patch("sinan_agentic_core.core.base_runner.Runner") as MockRunner:
-            MockRunner.run = AsyncMock(return_value=mock_result)
+        with patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls:
+            mock_runner_cls.run = AsyncMock(return_value=mock_result)
             with patch.object(runner, "create_agent", new_callable=AsyncMock) as mock_create:
                 mock_agent = Mock()
                 mock_agent.tools = []
@@ -502,12 +494,16 @@ class TestBaseAgentRunnerIntegration:
                 mock_create.return_value = mock_agent
 
                 result = await runner._execute_basic(
-                    "test_agent", context, session, 10, "hello",
+                    "test_agent",
+                    context,
+                    session,
+                    10,
+                    "hello",
                     capabilities=[recovery],
                 )
 
                 assert result == "test output"
-                call_kwargs = MockRunner.run.call_args[1]
+                call_kwargs = mock_runner_cls.run.call_args[1]
                 assert isinstance(call_kwargs["hooks"], _CompositeHooks)
 
     @pytest.mark.asyncio
@@ -520,7 +516,9 @@ class TestBaseAgentRunnerIntegration:
         with patch.object(runner, "_execute_basic", new_callable=AsyncMock) as mock_basic:
             mock_basic.return_value = "output"
             await runner.execute(
-                "test_agent", context, session=Mock(),
+                "test_agent",
+                context,
+                session=Mock(),
                 input_text="hello",
                 error_recovery=recovery,
             )
@@ -574,10 +572,12 @@ class TestCompositeHooks:
 class TestTopLevelImports:
     def test_importable_from_core(self):
         from sinan_agentic_core.core import ToolErrorRecovery
+
         assert ToolErrorRecovery is not None
 
     def test_importable_from_top_level(self):
         from sinan_agentic_core import ToolErrorRecovery
+
         assert ToolErrorRecovery is not None
 
 
@@ -715,7 +715,9 @@ class TestResetClearsPendingArgs:
 # ------------------------------------------------------------------ #
 
 
-def _record_failure(recovery: ToolErrorRecovery, tool_name: str, args: dict, message: str = "boom") -> None:
+def _record_failure(
+    recovery: ToolErrorRecovery, tool_name: str, args: dict, message: str = "boom"
+) -> None:
     """Helper: simulate a single failed tool call."""
     ctx = RunContextWrapper(context=None)
     tool = Mock()

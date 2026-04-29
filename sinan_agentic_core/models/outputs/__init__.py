@@ -6,7 +6,7 @@ Provides reusable dataclasses for:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -21,13 +21,14 @@ class ToolOutput:
         error: Error message if success is False
         metadata: Additional context
     """
-    success: bool
-    data: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
-        result = {"success": self.success}
+    success: bool
+    data: dict[str, Any] | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"success": self.success}
         if self.data is not None:
             result["data"] = self.data
         if self.error:
@@ -50,15 +51,16 @@ class ChatResponse:
         usage: Token usage dict with requests, input_tokens, output_tokens,
             total_tokens, input_tokens_details, output_tokens_details
     """
+
     success: bool
     response: str = ""
     session_id: str = "default"
-    tools_called: List[str] = field(default_factory=list)
-    error: Optional[str] = None
-    usage: Optional[Dict[str, Any]] = None
+    tools_called: list[str] = field(default_factory=list)
+    error: str | None = None
+    usage: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        result = {
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "success": self.success,
             "response": self.response,
             "session_id": self.session_id,

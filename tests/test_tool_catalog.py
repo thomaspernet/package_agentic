@@ -12,7 +12,6 @@ from sinan_agentic_core.registry.tool_catalog import (
 )
 from sinan_agentic_core.registry.tool_registry import ToolDefinition, ToolRegistry
 
-
 # ---------------------------------------------------------------------------
 # ToolYamlEntry
 # ---------------------------------------------------------------------------
@@ -47,9 +46,11 @@ class TestToolYamlEntry:
 
 class TestToolCatalog:
     def test_get_existing_tool(self):
-        catalog = ToolCatalog(raw_tools={
-            "search": {"description": "Search stuff", "category": "graph"},
-        })
+        catalog = ToolCatalog(
+            raw_tools={
+                "search": {"description": "Search stuff", "category": "graph"},
+            }
+        )
         entry = catalog.get("search")
         assert entry.description == "Search stuff"
         assert entry.category == "graph"
@@ -60,10 +61,12 @@ class TestToolCatalog:
             catalog.get("missing_tool")
 
     def test_list_tools(self):
-        catalog = ToolCatalog(raw_tools={
-            "search": {"description": "a"},
-            "read": {"description": "b"},
-        })
+        catalog = ToolCatalog(
+            raw_tools={
+                "search": {"description": "a"},
+                "read": {"description": "b"},
+            }
+        )
         assert set(catalog.list_tools()) == {"search", "read"}
 
     def test_empty_catalog(self):
@@ -86,16 +89,16 @@ class TestEnrichRegistry:
 
     def test_yaml_overwrites_empty_decorator_fields(self):
         """YAML fills in metadata that the decorator left empty."""
-        reg = self._make_registry(
-            ToolDefinition(name="search", function=lambda: None)
+        reg = self._make_registry(ToolDefinition(name="search", function=lambda: None))
+        catalog = ToolCatalog(
+            raw_tools={
+                "search": {
+                    "description": "Search the graph",
+                    "category": "graph_nav",
+                    "recovery_hint": "Try broader terms",
+                },
+            }
         )
-        catalog = ToolCatalog(raw_tools={
-            "search": {
-                "description": "Search the graph",
-                "category": "graph_nav",
-                "recovery_hint": "Try broader terms",
-            },
-        })
         catalog.enrich_registry(reg)
 
         tool = reg.get_tool("search")
@@ -113,9 +116,11 @@ class TestEnrichRegistry:
                 category="old_cat",
             )
         )
-        catalog = ToolCatalog(raw_tools={
-            "search": {"description": "new desc", "category": "new_cat"},
-        })
+        catalog = ToolCatalog(
+            raw_tools={
+                "search": {"description": "new desc", "category": "new_cat"},
+            }
+        )
         catalog.enrich_registry(reg)
 
         tool = reg.get_tool("search")
@@ -132,9 +137,11 @@ class TestEnrichRegistry:
                 category="decorator_cat",
             )
         )
-        catalog = ToolCatalog(raw_tools={
-            "search": {"description": "", "category": ""},
-        })
+        catalog = ToolCatalog(
+            raw_tools={
+                "search": {"description": "", "category": ""},
+            }
+        )
         catalog.enrich_registry(reg)
 
         tool = reg.get_tool("search")
@@ -144,9 +151,11 @@ class TestEnrichRegistry:
     def test_tool_in_yaml_not_in_registry_logs_warning(self, caplog):
         """YAML tool with no registered function logs warning."""
         reg = self._make_registry()  # empty registry
-        catalog = ToolCatalog(raw_tools={
-            "unknown_tool": {"description": "No function registered"},
-        })
+        catalog = ToolCatalog(
+            raw_tools={
+                "unknown_tool": {"description": "No function registered"},
+            }
+        )
         with caplog.at_level("WARNING"):
             catalog.enrich_registry(reg)
         assert "unknown_tool" in caplog.text
@@ -171,13 +180,16 @@ class TestEnrichRegistry:
 
     def test_function_reference_preserved(self):
         """enrich_registry never touches the function reference."""
-        fn = lambda: "hello"
-        reg = self._make_registry(
-            ToolDefinition(name="t", function=fn)
+
+        def fn():
+            return "hello"
+
+        reg = self._make_registry(ToolDefinition(name="t", function=fn))
+        catalog = ToolCatalog(
+            raw_tools={
+                "t": {"description": "enriched"},
+            }
         )
-        catalog = ToolCatalog(raw_tools={
-            "t": {"description": "enriched"},
-        })
         catalog.enrich_registry(reg)
         assert reg.get_tool("t").function is fn
 
@@ -187,10 +199,12 @@ class TestEnrichRegistry:
             ToolDefinition(name="a", function=lambda: None),
             ToolDefinition(name="b", function=lambda: None),
         )
-        catalog = ToolCatalog(raw_tools={
-            "a": {"description": "tool a", "category": "cat_a"},
-            "b": {"description": "tool b", "category": "cat_b"},
-        })
+        catalog = ToolCatalog(
+            raw_tools={
+                "a": {"description": "tool a", "category": "cat_a"},
+                "b": {"description": "tool b", "category": "cat_b"},
+            }
+        )
         catalog.enrich_registry(reg)
 
         assert reg.get_tool("a").description == "tool a"
@@ -254,7 +268,9 @@ class TestLoadToolCatalog:
         yaml_file = tmp_path / "tools.yaml"
         yaml_file.write_text(yaml_content)
 
-        fn = lambda: "result"
+        def fn():
+            return "result"
+
         reg = ToolRegistry()
         reg.register(ToolDefinition(name="my_tool", function=fn))
 
@@ -278,12 +294,14 @@ class TestLoadToolCatalog:
 class TestTopLevelImports:
     def test_import_from_registry_package(self):
         from sinan_agentic_core.registry import ToolCatalog, ToolYamlEntry, load_tool_catalog
+
         assert ToolCatalog is not None
         assert ToolYamlEntry is not None
         assert load_tool_catalog is not None
 
     def test_import_from_top_level(self):
         from sinan_agentic_core import ToolCatalog, ToolYamlEntry, load_tool_catalog
+
         assert ToolCatalog is not None
         assert ToolYamlEntry is not None
         assert load_tool_catalog is not None
