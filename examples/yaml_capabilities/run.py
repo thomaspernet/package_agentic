@@ -28,7 +28,6 @@ from sinan_agentic_core import (
     register_capability,
 )
 
-
 # ---------------------------------------------------------------------------
 # Custom capability — registered under a name that agents.yaml can reference.
 # ---------------------------------------------------------------------------

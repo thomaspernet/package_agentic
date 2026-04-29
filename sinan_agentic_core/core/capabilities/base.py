@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any
 
 from agents import RunContextWrapper, Tool
 
@@ -41,7 +41,7 @@ class Capability:
     when streaming.
     """
 
-    on_event: Optional[Callable[[dict[str, Any]], None]] = None
+    on_event: Callable[[dict[str, Any]], None] | None = None
 
     def instructions(self, ctx: RunContextWrapper[Any]) -> str | None:
         """Contribute a fragment to the system prompt for the next turn.
@@ -100,7 +100,7 @@ class Capability:
         self,
         ctx: RunContextWrapper[Any],
         agent: Any,
-        system_prompt: Optional[str],
+        system_prompt: str | None,
         input_items: Any,
     ) -> None:
         """Called immediately before the model is invoked for a turn."""

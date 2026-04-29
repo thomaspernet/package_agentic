@@ -18,7 +18,7 @@ import inspect
 import json
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from ..registry.tool_registry import ToolDefinition, ToolRegistry
 from .context_protocol import MCPContextFactory
@@ -41,7 +41,8 @@ def _get_params_schema(tool_def: ToolDefinition) -> dict[str, Any]:
 
     # Path 1: FunctionTool from OpenAI Agents SDK
     if hasattr(fn, "params_json_schema"):
-        return fn.params_json_schema
+        schema: dict[str, Any] = fn.params_json_schema
+        return schema
 
     # Path 2: raw function — build schema from type hints
     sig = inspect.signature(fn)
@@ -115,7 +116,7 @@ def _build_mcp_handler(
             default = inspect.Parameter.empty
         else:
             default = prop_def.get("default", None)
-            py_type = Optional[py_type]  # type: ignore[assignment]
+            py_type = py_type | None  # type: ignore[assignment]
 
         parameters.append(
             inspect.Parameter(
@@ -180,7 +181,8 @@ class MCPToolAdapter:
         impl = getattr(fn, "_impl", None)
         if impl is not None:
             async with self._context_factory.tool_context() as ctx:
-                return await impl(ctx, **params)
+                impl_result = await impl(ctx, **params)
+                return impl_result if isinstance(impl_result, str) else str(impl_result)
 
         # Path 2: FunctionTool — invoke via on_invoke_tool with synthetic context
         if _has_on_invoke_tool(fn):
@@ -189,7 +191,8 @@ class MCPToolAdapter:
         # Path 3: raw async function with ctx as first param
         if inspect.iscoroutinefunction(fn):
             async with self._context_factory.tool_context() as ctx:
-                return await fn(ctx, **params)
+                fn_result = await fn(ctx, **params)
+                return fn_result if isinstance(fn_result, str) else str(fn_result)
 
         raise RuntimeError(
             f"Tool '{tool_name}' has no supported invocation method. "
