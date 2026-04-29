@@ -11,6 +11,7 @@ Usage:
 """
 
 import logging
+from typing import Any, cast
 
 from agents import Agent
 
@@ -61,5 +62,5 @@ def create_agent_from_registry(
         name=agent_def.name,
         instructions=agent_def.instructions,
         model=model_override or agent_def.model,
-        tools=tools,
+        tools=cast(list[Any], tools),
     )

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -10,7 +11,7 @@ class GuardrailDefinition:
 
     name: str
     description: str
-    function: Callable
+    function: Callable[..., Any]
     category: str  # "input", "output"
 
 
@@ -23,11 +24,11 @@ class GuardrailRegistry:
 
     _guardrails: dict[str, GuardrailDefinition] = field(default_factory=dict)
 
-    def register(self, guardrail_def: GuardrailDefinition):
+    def register(self, guardrail_def: GuardrailDefinition) -> None:
         """Register a new guardrail."""
         self._guardrails[guardrail_def.name] = guardrail_def
 
-    def get_guardrail(self, name: str) -> GuardrailDefinition:
+    def get_guardrail(self, name: str) -> GuardrailDefinition | None:
         """Get a specific guardrail by name."""
         return self._guardrails.get(name)
 
@@ -35,13 +36,13 @@ class GuardrailRegistry:
         """Get all guardrails in a category."""
         return [g for g in self._guardrails.values() if g.category == category]
 
-    def get_guardrail_functions(self, guardrail_names: list[str]) -> list[Callable]:
+    def get_guardrail_functions(self, guardrail_names: list[str]) -> list[Callable[..., Any]]:
         """Get actual function objects for given guardrail names."""
         return [
             self._guardrails[name].function for name in guardrail_names if name in self._guardrails
         ]
 
-    def get_all_functions(self) -> dict[str, Callable]:
+    def get_all_functions(self) -> dict[str, Callable[..., Any]]:
         """Get all registered guardrail functions as a mapping."""
         return {name: gdef.function for name, gdef in self._guardrails.items()}
 
@@ -59,7 +60,7 @@ def register_guardrail(
     name: str,
     description: str,
     category: str,
-):
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to register a guardrail.
 
     Usage:
@@ -73,7 +74,7 @@ def register_guardrail(
             ...
     """
 
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         guardrail_def = GuardrailDefinition(
             name=name,
             description=description,

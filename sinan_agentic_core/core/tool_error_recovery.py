@@ -373,7 +373,8 @@ class ToolErrorRecovery(Capability):
         if self._registry:
             tool_def = self._registry.get_tool(tool_name)
             if tool_def and getattr(tool_def, "recovery_hint", ""):
-                return tool_def.recovery_hint
+                hint: str = tool_def.recovery_hint
+                return hint
         return self._mcp_hints.get(tool_name, "")
 
     @staticmethod

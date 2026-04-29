@@ -52,7 +52,7 @@ class MCPContextFactory(ABC):
         finally:
             await self.cleanup(ctx)
 
-    def get_resource_handlers(self) -> dict[str, Callable]:
+    def get_resource_handlers(self) -> dict[str, Callable[..., Any]]:
         """Return MCP resource handlers: ``{uri_pattern: async_handler}``.
 
         Override to expose app-specific resources (documents, schemas, etc.).
@@ -60,7 +60,7 @@ class MCPContextFactory(ABC):
         """
         return {}
 
-    def get_prompt_handlers(self) -> dict[str, Callable]:
+    def get_prompt_handlers(self) -> dict[str, Callable[..., Any]]:
         """Return MCP prompt handlers: ``{name: handler_fn}``.
 
         Override to expose app-specific prompt templates.

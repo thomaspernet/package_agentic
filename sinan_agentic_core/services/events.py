@@ -165,7 +165,7 @@ class StreamingHelper:
         helper.emit_answer("42", sources=["data.csv"])
     """
 
-    def __init__(self, event_callback: Callable | None = None):
+    def __init__(self, event_callback: Callable[[BaseEvent], None] | None = None):
         self.event_callback = event_callback
 
     def emit_agent_start(self, agent_name: str, iteration: int = 1) -> None:

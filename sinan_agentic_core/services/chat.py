@@ -98,7 +98,7 @@ def _usage_to_dict(result: Any) -> dict[str, Any]:
 async def chat(
     message: str,
     agent_name: str | None = None,
-    session: AgentSession = None,
+    session: AgentSession | None = None,
     context: Any = None,
     model_override: str | None = None,
     agent: Agent | None = None,
@@ -119,6 +119,8 @@ async def chat(
         ``{"success": True, "response": str, "session_id": str, "tools_called": list, "usage": dict}``
         or ``{"success": False, "error": str, "session_id": str}`` on failure.
     """
+    if session is None:
+        raise ValueError("'session' is required")
     try:
         resolved = _resolve_agent(agent, agent_name, model_override)
 
@@ -149,7 +151,7 @@ async def chat(
 async def chat_with_hooks(
     message: str,
     agent_name: str | None = None,
-    session: AgentSession = None,
+    session: AgentSession | None = None,
     context: Any = None,
     tool_friendly_names: dict[str, str] | None = None,
     model_override: str | None = None,
@@ -180,7 +182,9 @@ async def chat_with_hooks(
             {"event": "answer",     "data": {"response": "...", "tools_called": [...]}}
             {"event": "error",      "data": {"error": "..."}}
     """
-    queue: asyncio.Queue = asyncio.Queue()
+    if session is None:
+        raise ValueError("'session' is required")
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     hooks = StreamingRunHooks(queue, tool_friendly_names)
 
     try:
@@ -191,7 +195,7 @@ async def chat_with_hooks(
         history = await session.get_items()
 
         # Run agent with hooks in the background
-        async def _run():
+        async def _run() -> Any:
             run_kwargs: dict[str, Any] = {
                 "starting_agent": resolved,
                 "input": history,
@@ -237,7 +241,7 @@ async def chat_with_hooks(
 async def chat_streamed(
     message: str,
     agent_name: str | None = None,
-    session: AgentSession = None,
+    session: AgentSession | None = None,
     context: Any = None,
     model_override: str | None = None,
     agent: Agent | None = None,
@@ -268,6 +272,8 @@ async def chat_streamed(
             {"event": "answer",          "data": {"response": "...", "tools_called": [...]}}
             {"event": "error",           "data": {"error": "..."}}
     """
+    if session is None:
+        raise ValueError("'session' is required")
     try:
         resolved = _resolve_agent(agent, agent_name, model_override)
         await session.add_items([{"role": "user", "content": message}])

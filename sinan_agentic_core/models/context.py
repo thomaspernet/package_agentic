@@ -36,7 +36,7 @@ class AgentContext:
     database_connector: Any  # Replace with your specific database connector type
     schema: str = ""  # Formatted schema string for agent instructions
     schema_data: dict[str, Any] | None = None  # Raw schema data
-    query_results: list[dict] = field(default_factory=list)
+    query_results: list[dict[str, Any]] = field(default_factory=list)
     filters: dict[str, Any] | None = None  # User pre-selected filters
     discovered_data: dict[str, Any] = field(default_factory=dict)  # Data discovered during workflow
 
@@ -45,7 +45,7 @@ class AgentContext:
         """Check if any query results have been collected."""
         return len(self.query_results) > 0
 
-    def add_query_result(self, result: dict) -> None:
+    def add_query_result(self, result: dict[str, Any]) -> None:
         """Add a database query result to the context.
 
         Args:
