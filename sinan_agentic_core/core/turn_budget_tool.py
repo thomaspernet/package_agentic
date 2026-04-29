@@ -6,7 +6,7 @@ The agent calls it when running low on turns and needs more time.
 
 from agents import RunContextWrapper, function_tool
 
-from ..utils.tool_helpers import unwrap_context, tool_response, tool_error
+from ..utils.tool_helpers import tool_error, tool_response, unwrap_context
 
 
 @function_tool(name_override="request_extension")
@@ -27,5 +27,7 @@ async def request_extension_tool(ctx: RunContextWrapper, reason: str) -> str:
 
     success, message = budget.request_extension(reason)
     if success:
-        return tool_response({"status": "approved", "message": message, "remaining": budget.remaining})
+        return tool_response(
+            {"status": "approved", "message": message, "remaining": budget.remaining}
+        )
     return tool_error(message)

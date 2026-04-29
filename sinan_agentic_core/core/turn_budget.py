@@ -20,7 +20,7 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from agents import RunContextWrapper, Tool
 
@@ -89,8 +89,14 @@ class TurnBudget(Capability):
         """Request additional turns. Returns (success, message)."""
         if not self.can_extend:
             if self.extensions_used >= self.max_extensions:
-                return False, f"Extension denied: maximum extensions ({self.max_extensions}) reached."
-            return False, f"Extension denied: would exceed absolute maximum ({self.absolute_max} turns)."
+                return (
+                    False,
+                    f"Extension denied: maximum extensions ({self.max_extensions}) reached.",
+                )
+            return (
+                False,
+                f"Extension denied: would exceed absolute maximum ({self.absolute_max} turns).",
+            )
 
         self.extensions_used += 1
         self.extension_reasons.append(reason)
@@ -101,7 +107,10 @@ class TurnBudget(Capability):
             self.max_extensions,
             reason,
         )
-        return True, f"Extension approved. You now have {self.remaining} turns remaining (budget: {self.effective_max})."
+        return (
+            True,
+            f"Extension approved. You now have {self.remaining} turns remaining (budget: {self.effective_max}).",
+        )
 
     def record_turn(self) -> None:
         """Record that a turn was used."""
@@ -165,22 +174,24 @@ class TurnBudget(Capability):
         self,
         ctx: RunContextWrapper[Any],
         agent: Any,
-        system_prompt: Optional[str],
+        system_prompt: str | None,
         input_items: Any,
     ) -> None:
         """Capability hook — count this turn and emit a streaming event."""
         self.record_turn()
         if self.on_event:
-            self.on_event({
-                "event": "turn_budget",
-                "data": {
-                    "turns_used": self.turns_used,
-                    "effective_max": self.effective_max,
-                    "remaining": self.remaining,
-                    "extensions_used": self.extensions_used,
-                    "is_warning": self.is_warning,
-                },
-            })
+            self.on_event(
+                {
+                    "event": "turn_budget",
+                    "data": {
+                        "turns_used": self.turns_used,
+                        "effective_max": self.effective_max,
+                        "remaining": self.remaining,
+                        "extensions_used": self.extensions_used,
+                        "is_warning": self.is_warning,
+                    },
+                }
+            )
 
     def tools(self) -> list[Tool]:
         """Expose request_extension so the agent can self-extend its budget."""

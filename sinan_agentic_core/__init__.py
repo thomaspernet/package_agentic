@@ -19,7 +19,7 @@ Quick Start:
         register_tool,
         AgentDefinition
     )
-    
+
     # Define your agent
     my_agent = AgentDefinition(
         name="my_agent",
@@ -28,7 +28,7 @@ Quick Start:
         tools=["my_tool"]
     )
     register_agent(my_agent)
-    
+
     # Run orchestrator
     orchestrator = AgentOrchestrator()
     result = await orchestrator.run(

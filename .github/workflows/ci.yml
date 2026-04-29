@@ -37,14 +37,10 @@ jobs:
       - name: Pytest
         run: pytest --cov=sinan_agentic_core --cov-report=term-missing
 
-  # Lint job runs separately and is non-required for now (#13/#1447 follow-up).
-  # The repo has pre-existing ruff/black/mypy violations from before CI existed;
-  # cleanup is tracked as a separate issue rather than blocking every PR until
-  # someone gets around to it. Once the backlog clears, flip ``continue-on-error``
-  # off and the lint signal becomes a hard gate.
+  # Lint job runs separately and is a hard gate after #20 (ruff) and #22 (mypy)
+  # cleared the pre-existing violations.
   lint:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

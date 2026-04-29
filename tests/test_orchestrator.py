@@ -13,7 +13,9 @@ from sinan_agentic_core.registry.tool_registry import ToolRegistry
 def orchestrator():
     """Build an AgentOrchestrator with empty registries."""
     with (
-        patch("sinan_agentic_core.core.base_runner.get_agent_registry", return_value=AgentRegistry()),
+        patch(
+            "sinan_agentic_core.core.base_runner.get_agent_registry", return_value=AgentRegistry()
+        ),
         patch("sinan_agentic_core.core.base_runner.get_tool_registry", return_value=ToolRegistry()),
         patch(
             "sinan_agentic_core.core.base_runner.get_guardrail_registry",

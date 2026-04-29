@@ -17,7 +17,6 @@ from sinan_agentic_core.registry.capability_registry import (
     register_capability,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test capability
 # ---------------------------------------------------------------------------
@@ -165,9 +164,7 @@ class TestRegisterCapabilityDecorator:
             assert callable(factory)
             assert factory({}).__class__ is _RecorderCapability
         finally:
-            get_capability_registry()._factories.pop(
-                "test_returns_unchanged", None
-            )
+            get_capability_registry()._factories.pop("test_returns_unchanged", None)
 
 
 # ---------------------------------------------------------------------------

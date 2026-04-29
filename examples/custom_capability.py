@@ -29,7 +29,6 @@ from sinan_agentic_core import (
     register_tool,
 )
 
-
 # =============================================================================
 # 1. A custom Capability: log every tool call
 # =============================================================================
@@ -94,17 +93,19 @@ async def get_current_time(ctx) -> dict:
 # each one before every execute() call so concurrent runs stay isolated.
 logger_capability = ToolCallLogger(prefix="[trace]")
 
-register_agent(AgentDefinition(
-    name="time_assistant",
-    description="Tells the user the current time",
-    instructions=(
-        "You are a helpful assistant. When the user asks for the time, "
-        "call the get_current_time tool and report the result."
-    ),
-    tools=["get_current_time"],
-    model="gpt-4o-mini",
-    capabilities=[logger_capability],
-))
+register_agent(
+    AgentDefinition(
+        name="time_assistant",
+        description="Tells the user the current time",
+        instructions=(
+            "You are a helpful assistant. When the user asks for the time, "
+            "call the get_current_time tool and report the result."
+        ),
+        tools=["get_current_time"],
+        model="gpt-4o-mini",
+        capabilities=[logger_capability],
+    )
+)
 
 
 # =============================================================================
@@ -130,8 +131,10 @@ async def run() -> None:
     # The template is untouched - the runner ran on a clone. Either inspect
     # the clone via streaming events, or pass a fresh ToolCallLogger as a
     # runtime kwarg if you need to read its trace after the run.
-    print(f"\nTemplate ToolCallLogger.calls (still empty - clones are isolated):"
-          f" {logger_capability.calls}")
+    print(
+        f"\nTemplate ToolCallLogger.calls (still empty - clones are isolated):"
+        f" {logger_capability.calls}"
+    )
 
 
 async def main() -> None:

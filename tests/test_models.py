@@ -1,10 +1,6 @@
 """Tests for output models and context."""
 
-from unittest.mock import Mock
-
 from sinan_agentic_core.models.outputs import ChatResponse, ToolOutput
-from sinan_agentic_core.models.context import AgentContext
-
 
 # -- ToolOutput ---------------------------------------------------------------
 

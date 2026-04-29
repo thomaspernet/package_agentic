@@ -93,7 +93,9 @@ def runner_with_capability_agent():
     with (
         patch("sinan_agentic_core.core.base_runner.get_agent_registry", return_value=agent_reg),
         patch("sinan_agentic_core.core.base_runner.get_tool_registry", return_value=tool_reg),
-        patch("sinan_agentic_core.core.base_runner.get_guardrail_registry", return_value=guardrail_reg),
+        patch(
+            "sinan_agentic_core.core.base_runner.get_guardrail_registry", return_value=guardrail_reg
+        ),
     ):
         from sinan_agentic_core.core.base_runner import BaseAgentRunner
 
@@ -117,8 +119,8 @@ class TestCustomCapabilityIntegration:
             captured_agent["agent"] = kwargs["starting_agent"]
             return mock_result
 
-        with patch("sinan_agentic_core.core.base_runner.Runner") as MockRunner:
-            MockRunner.run = AsyncMock(side_effect=fake_run)
+        with patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls:
+            mock_runner_cls.run = AsyncMock(side_effect=fake_run)
             with patch.object(runner, "create_agent", new_callable=AsyncMock) as mock_create:
                 mock_agent = Mock()
                 mock_agent.tools = []
@@ -175,8 +177,8 @@ class TestCustomCapabilityIntegration:
             captured["agent"] = kwargs["starting_agent"]
             return mock_result
 
-        with patch("sinan_agentic_core.core.base_runner.Runner") as MockRunner:
-            MockRunner.run = AsyncMock(side_effect=fake_run)
+        with patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls:
+            mock_runner_cls.run = AsyncMock(side_effect=fake_run)
             with patch.object(runner, "create_agent", new_callable=AsyncMock) as mock_create:
                 mock_agent = Mock()
                 mock_agent.tools = []
@@ -219,8 +221,8 @@ class TestCapabilityStateIsolation:
             run_cap.llm_starts += 1
             return mock_result
 
-        with patch("sinan_agentic_core.core.base_runner.Runner") as MockRunner:
-            MockRunner.run = AsyncMock(side_effect=fake_run)
+        with patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls:
+            mock_runner_cls.run = AsyncMock(side_effect=fake_run)
             with patch.object(runner, "create_agent", new_callable=AsyncMock) as mock_create:
                 mock_agent = Mock()
                 mock_agent.tools = []

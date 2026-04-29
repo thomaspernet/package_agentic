@@ -1,13 +1,12 @@
 """Tests for the turn budget system (core/turn_budget.py + turn_budget_tool.py)."""
 
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from agents import RunContextWrapper
 
 from sinan_agentic_core.core.capabilities import Capability
 from sinan_agentic_core.core.turn_budget import TurnBudget
-
 
 # ------------------------------------------------------------------ #
 # TurnBudget dataclass
@@ -30,7 +29,9 @@ class TestTurnBudgetDefaults:
         assert budget.extension_reasons == []
 
     def test_custom_values(self):
-        budget = TurnBudget(default_turns=5, reminder_at=1, max_extensions=2, extension_size=3, absolute_max=15)
+        budget = TurnBudget(
+            default_turns=5, reminder_at=1, max_extensions=2, extension_size=3, absolute_max=15
+        )
         assert budget.default_turns == 5
         assert budget.absolute_max == 15
 
@@ -178,7 +179,9 @@ class TestBuildInstructionSection:
         assert "5 of 10" in section
 
     def test_warning_with_extension_available(self):
-        budget = TurnBudget(default_turns=10, reminder_at=2, max_extensions=1, extension_size=5, absolute_max=20)
+        budget = TurnBudget(
+            default_turns=10, reminder_at=2, max_extensions=1, extension_size=5, absolute_max=20
+        )
         budget.turns_used = 9
         section = budget.build_instruction_section()
         assert "1 turn(s) remaining" in section
@@ -241,6 +244,7 @@ class TestTurnBudgetOnLlmStart:
 class TestInstructionBuilderTurnBudget:
     def test_no_budget_returns_none(self):
         from sinan_agentic_core.instructions import InstructionBuilder
+
         builder = InstructionBuilder(None, None)
         assert builder.turn_budget_section() is None
 
@@ -295,8 +299,8 @@ class TestBaseAgentRunnerTurnBudget:
     @pytest.fixture
     def _registries(self):
         from sinan_agentic_core.registry.agent_registry import AgentDefinition, AgentRegistry
-        from sinan_agentic_core.registry.tool_registry import ToolRegistry
         from sinan_agentic_core.registry.guardrail_registry import GuardrailRegistry
+        from sinan_agentic_core.registry.tool_registry import ToolRegistry
 
         agent_reg = AgentRegistry()
         tool_reg = ToolRegistry()
@@ -320,7 +324,10 @@ class TestBaseAgentRunnerTurnBudget:
         with (
             patch("sinan_agentic_core.core.base_runner.get_agent_registry", return_value=agent_reg),
             patch("sinan_agentic_core.core.base_runner.get_tool_registry", return_value=tool_reg),
-            patch("sinan_agentic_core.core.base_runner.get_guardrail_registry", return_value=guardrail_reg),
+            patch(
+                "sinan_agentic_core.core.base_runner.get_guardrail_registry",
+                return_value=guardrail_reg,
+            ),
         ):
             return BaseAgentRunner()
 
@@ -360,8 +367,8 @@ class TestBaseAgentRunnerTurnBudget:
         mock_result = Mock()
         mock_result.final_output = "test output"
 
-        with patch("sinan_agentic_core.core.base_runner.Runner") as MockRunner:
-            MockRunner.run = AsyncMock(return_value=mock_result)
+        with patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls:
+            mock_runner_cls.run = AsyncMock(return_value=mock_result)
             with patch.object(runner, "create_agent", new_callable=AsyncMock) as mock_create:
                 mock_agent = Mock()
                 mock_agent.tools = []
@@ -369,13 +376,17 @@ class TestBaseAgentRunnerTurnBudget:
                 mock_create.return_value = mock_agent
 
                 result = await runner._execute_basic(
-                    "test_agent", context, session, 25, "hello",
+                    "test_agent",
+                    context,
+                    session,
+                    25,
+                    "hello",
                     capabilities=[budget],
                 )
 
                 assert result == "test output"
                 # Verify hooks were passed
-                call_kwargs = MockRunner.run.call_args[1]
+                call_kwargs = mock_runner_cls.run.call_args[1]
                 assert isinstance(call_kwargs["hooks"], _CompositeHooks)
                 assert call_kwargs["max_turns"] == 25
 
@@ -388,7 +399,9 @@ class TestBaseAgentRunnerTurnBudget:
         with patch.object(runner, "_execute_basic", new_callable=AsyncMock) as mock_basic:
             mock_basic.return_value = "output"
             await runner.execute(
-                "test_agent", context, session,
+                "test_agent",
+                context,
+                session,
                 max_turns=10,
                 input_text="hello",
                 turn_budget=budget,
@@ -407,7 +420,9 @@ class TestBaseAgentRunnerTurnBudget:
         with patch.object(runner, "_execute_basic", new_callable=AsyncMock) as mock_basic:
             mock_basic.return_value = "output"
             await runner.execute(
-                "test_agent", context, session=Mock(),
+                "test_agent",
+                context,
+                session=Mock(),
                 input_text="hello",
                 turn_budget=budget,
             )
@@ -425,7 +440,9 @@ class TestBaseAgentRunnerTurnBudget:
         with patch.object(runner, "_execute_basic", new_callable=AsyncMock) as mock_basic:
             mock_basic.return_value = "output"
             await runner.execute(
-                "test_agent", context, session=Mock(),
+                "test_agent",
+                context,
+                session=Mock(),
                 input_text="hello",
                 turn_budget=budget,
             )
@@ -441,7 +458,9 @@ class TestBaseAgentRunnerTurnBudget:
         with patch.object(runner, "_execute_basic", new_callable=AsyncMock) as mock_basic:
             mock_basic.return_value = "output"
             await runner.execute(
-                "test_agent", context, session,
+                "test_agent",
+                context,
+                session,
                 max_turns=15,
                 input_text="hello",
             )
@@ -485,6 +504,7 @@ class TestTurnBudgetIsCapability:
 
     def test_tools_returns_request_extension(self):
         from sinan_agentic_core.core.turn_budget_tool import request_extension_tool
+
         assert TurnBudget().tools() == [request_extension_tool]
 
 
@@ -599,6 +619,7 @@ class TestTurnBudgetSnapshot:
 
     def test_snapshot_is_json_serializable(self):
         import json
+
         budget = TurnBudget()
         budget.record_turn()
         budget.request_extension("why")
@@ -613,8 +634,10 @@ class TestTurnBudgetSnapshot:
 class TestTopLevelImports:
     def test_turn_budget_importable(self):
         from sinan_agentic_core import TurnBudget
+
         assert TurnBudget is not None
 
     def test_turn_budget_from_core(self):
         from sinan_agentic_core.core import TurnBudget
+
         assert TurnBudget is not None

@@ -2,9 +2,8 @@
 
 import pytest
 
-from sinan_agentic_core.registry.tool_catalog import ToolCatalog
 from sinan_agentic_core.registry.agent_catalog import AgentCatalog
-
+from sinan_agentic_core.registry.tool_catalog import ToolCatalog
 
 # ---------------------------------------------------------------------------
 # ToolCatalog MCP tests
@@ -13,24 +12,26 @@ from sinan_agentic_core.registry.agent_catalog import AgentCatalog
 
 def test_tool_catalog_get_mcp_tools():
     """get_mcp_tools() returns only tools with mcp.expose: true."""
-    catalog = ToolCatalog(raw_tools={
-        "discover": {
-            "description": "Discover",
-            "mcp": {"expose": True},
-        },
-        "search": {
-            "description": "Search",
-            "mcp": {"expose": True},
-        },
-        "think": {
-            "description": "Think",
-            # No mcp section → not exposed
-        },
-        "ask_user": {
-            "description": "Ask user",
-            "mcp": {"expose": False},
-        },
-    })
+    catalog = ToolCatalog(
+        raw_tools={
+            "discover": {
+                "description": "Discover",
+                "mcp": {"expose": True},
+            },
+            "search": {
+                "description": "Search",
+                "mcp": {"expose": True},
+            },
+            "think": {
+                "description": "Think",
+                # No mcp section → not exposed
+            },
+            "ask_user": {
+                "description": "Ask user",
+                "mcp": {"expose": False},
+            },
+        }
+    )
 
     mcp_tools = catalog.get_mcp_tools()
     assert sorted(mcp_tools) == ["discover", "search"]
@@ -38,23 +39,27 @@ def test_tool_catalog_get_mcp_tools():
 
 def test_tool_catalog_get_mcp_tools_empty():
     """get_mcp_tools() returns empty list when no tools have mcp section."""
-    catalog = ToolCatalog(raw_tools={
-        "think": {"description": "Think"},
-    })
+    catalog = ToolCatalog(
+        raw_tools={
+            "think": {"description": "Think"},
+        }
+    )
     assert catalog.get_mcp_tools() == []
 
 
 def test_tool_yaml_entry_mcp_field():
     """ToolYamlEntry should include mcp config when present."""
-    catalog = ToolCatalog(raw_tools={
-        "discover": {
-            "description": "Discover",
-            "mcp": {
-                "expose": True,
-                "annotations": {"readOnlyHint": True},
+    catalog = ToolCatalog(
+        raw_tools={
+            "discover": {
+                "description": "Discover",
+                "mcp": {
+                    "expose": True,
+                    "annotations": {"readOnlyHint": True},
+                },
             },
-        },
-    })
+        }
+    )
 
     entry = catalog.get("discover")
     assert entry.mcp is not None
@@ -64,9 +69,11 @@ def test_tool_yaml_entry_mcp_field():
 
 def test_tool_yaml_entry_no_mcp():
     """ToolYamlEntry.mcp should be None when not present in YAML."""
-    catalog = ToolCatalog(raw_tools={
-        "think": {"description": "Think"},
-    })
+    catalog = ToolCatalog(
+        raw_tools={
+            "think": {"description": "Think"},
+        }
+    )
 
     entry = catalog.get("think")
     assert entry.mcp is None

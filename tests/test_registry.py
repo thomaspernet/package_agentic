@@ -3,9 +3,8 @@
 import pytest
 
 from sinan_agentic_core.registry.agent_registry import AgentDefinition, AgentRegistry
-from sinan_agentic_core.registry.tool_registry import ToolDefinition, ToolRegistry
 from sinan_agentic_core.registry.guardrail_registry import GuardrailDefinition, GuardrailRegistry
-
+from sinan_agentic_core.registry.tool_registry import ToolDefinition, ToolRegistry
 
 # -- AgentDefinition -----------------------------------------------------------
 
@@ -22,7 +21,9 @@ class TestAgentDefinition:
             AgentDefinition(name="bad", description="d")
 
     def test_callable_instructions(self):
-        fn = lambda ctx, agent: "dynamic"
+        def fn(ctx, agent):
+            return "dynamic"
+
         a = AgentDefinition(name="a2", description="d", instructions=fn)
         assert callable(a.instructions)
 
@@ -39,7 +40,9 @@ class TestAgentDefinition:
         assert a.hosted_tools == []
 
     def test_hosted_tools_set(self):
-        factory = lambda: "mock_tool"
+        def factory():
+            return "mock_tool"
+
         a = AgentDefinition(name="a", description="d", instructions="i", hosted_tools=[factory])
         assert len(a.hosted_tools) == 1
         assert a.hosted_tools[0]() == "mock_tool"
@@ -75,7 +78,7 @@ class TestAgentRegistry:
         assert reg.get("x").description == "new"
 
     def test_register_agent_global_helper(self):
-        from sinan_agentic_core.registry.agent_registry import register_agent, get_agent_registry
+        from sinan_agentic_core.registry.agent_registry import get_agent_registry, register_agent
 
         a = AgentDefinition(name="_global_helper_agent", description="d", instructions="i")
         register_agent(a)
@@ -117,8 +120,20 @@ class TestToolRegistry:
 
     def test_get_tool_functions(self):
         reg = ToolRegistry()
-        fn = lambda: "hello"
-        reg.register(ToolDefinition(name="t", function=fn, description="d", category="c", parameters_description="p", returns_description="r"))
+
+        def fn():
+            return "hello"
+
+        reg.register(
+            ToolDefinition(
+                name="t",
+                function=fn,
+                description="d",
+                category="c",
+                parameters_description="p",
+                returns_description="r",
+            )
+        )
         funcs = reg.get_tool_functions(["t", "missing"])
         assert len(funcs) == 1
         assert funcs[0] is fn
@@ -144,7 +159,7 @@ class TestToolRegistry:
 
 class TestRegisterToolDecorator:
     def test_decorator_registers_and_returns_function(self):
-        from sinan_agentic_core.registry.tool_registry import register_tool, get_tool_registry
+        from sinan_agentic_core.registry.tool_registry import get_tool_registry, register_tool
 
         @register_tool(
             name="_deco_tool",
@@ -196,7 +211,10 @@ class TestGuardrailRegistry:
 
     def test_get_guardrail_functions(self):
         reg = GuardrailRegistry()
-        fn = lambda: "check"
+
+        def fn():
+            return "check"
+
         reg.register(GuardrailDefinition("g", "d", fn, "input"))
         funcs = reg.get_guardrail_functions(["g", "missing"])
         assert len(funcs) == 1
@@ -204,8 +222,13 @@ class TestGuardrailRegistry:
 
     def test_get_all_functions(self):
         reg = GuardrailRegistry()
-        fn1 = lambda: 1
-        fn2 = lambda: 2
+
+        def fn1():
+            return 1
+
+        def fn2():
+            return 2
+
         reg.register(GuardrailDefinition("a", "d", fn1, "input"))
         reg.register(GuardrailDefinition("b", "d", fn2, "output"))
         all_fns = reg.get_all_functions()
@@ -225,8 +248,8 @@ class TestRegisterGuardrailDecorator:
 
     def test_decorator_registers_and_returns_function(self):
         from sinan_agentic_core.registry.guardrail_registry import (
-            register_guardrail,
             get_guardrail_registry,
+            register_guardrail,
         )
 
         @register_guardrail(
@@ -256,9 +279,19 @@ class TestAgentFactory:
         from sinan_agentic_core.registry.tool_registry import get_tool_registry
 
         tool_reg = get_tool_registry()
-        tool_fn = lambda: None
+
+        def tool_fn():
+            return None
+
         tool_reg.register(
-            ToolDefinition(name="_factory_tool", function=tool_fn, description="desc", category="cat", parameters_description="p", returns_description="r")
+            ToolDefinition(
+                name="_factory_tool",
+                function=tool_fn,
+                description="desc",
+                category="cat",
+                parameters_description="p",
+                returns_description="r",
+            )
         )
 
         get_agent_registry().register(
