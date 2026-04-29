@@ -15,8 +15,9 @@ Example::
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable
+from typing import Any
 
 
 class MCPContextFactory(ABC):

@@ -8,8 +8,8 @@ Tools are registered via the @register_tool decorator. Metadata can come from:
    # Metadata loaded from tools.yaml via ToolCatalog.enrich_registry()
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Any, List
 
 
 @dataclass
@@ -20,6 +20,7 @@ class ToolDefinition:
     just a name + function. Metadata is filled in later by ToolCatalog.enrich_registry()
     or by passing values directly in the decorator.
     """
+
     name: str
     function: Callable
     description: str = ""
@@ -37,7 +38,7 @@ class ToolRegistry:
     """
 
     # Store tools by category
-    _tools: Dict[str, ToolDefinition] = field(default_factory=dict)
+    _tools: dict[str, ToolDefinition] = field(default_factory=dict)
 
     def register(self, tool_def: ToolDefinition):
         """Register a new tool."""
@@ -47,15 +48,15 @@ class ToolRegistry:
         """Get a specific tool by name."""
         return self._tools.get(name)
 
-    def get_tools_by_category(self, category: str) -> List[ToolDefinition]:
+    def get_tools_by_category(self, category: str) -> list[ToolDefinition]:
         """Get all tools in a category."""
         return [t for t in self._tools.values() if t.category == category]
 
-    def get_tool_functions(self, tool_names: List[str]) -> List[Callable]:
+    def get_tool_functions(self, tool_names: list[str]) -> list[Callable]:
         """Get actual function objects for given tool names."""
         return [self._tools[name].function for name in tool_names if name in self._tools]
 
-    def to_instruction_text(self, tool_names: List[str] = None) -> str:
+    def to_instruction_text(self, tool_names: list[str] = None) -> str:
         """Convert tools to instruction text for agent prompts.
 
         Args:
@@ -69,7 +70,7 @@ class ToolRegistry:
         text = "## Available Tools\n\n"
 
         # Group by category
-        by_category: Dict[str, List[ToolDefinition]] = {}
+        by_category: dict[str, list[ToolDefinition]] = {}
         for tool in tools:
             if tool.category not in by_category:
                 by_category[tool.category] = []
@@ -125,6 +126,7 @@ def register_tool(
         @function_tool
         async def search(ctx, query: str) -> str: ...
     """
+
     def decorator(func):
         tool_def = ToolDefinition(
             name=name,
@@ -137,4 +139,5 @@ def register_tool(
         )
         _global_registry.register(tool_def)
         return func
+
     return decorator

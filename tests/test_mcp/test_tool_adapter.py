@@ -1,16 +1,14 @@
 """Tests for MCPToolAdapter — tool invocation and handler building."""
 
 import json
-import pytest
-from unittest.mock import AsyncMock
 
+import pytest
 from agents import function_tool
 from agents.tool_context import ToolContext
 
-from sinan_agentic_core.registry.tool_registry import ToolRegistry, ToolDefinition
 from sinan_agentic_core.mcp.context_protocol import MCPContextFactory
 from sinan_agentic_core.mcp.tool_adapter import MCPToolAdapter, _get_params_schema
-
+from sinan_agentic_core.registry.tool_registry import ToolDefinition, ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -50,16 +48,20 @@ async def search_tool(ctx: ToolContext, query: str, limit: int = 10) -> str:
 @pytest.fixture
 def registry():
     reg = ToolRegistry()
-    reg.register(ToolDefinition(
-        name="discover",
-        function=discover_tool,
-        description="Discover what's available",
-    ))
-    reg.register(ToolDefinition(
-        name="search",
-        function=search_tool,
-        description="Search for things",
-    ))
+    reg.register(
+        ToolDefinition(
+            name="discover",
+            function=discover_tool,
+            description="Discover what's available",
+        )
+    )
+    reg.register(
+        ToolDefinition(
+            name="search",
+            function=search_tool,
+            description="Search for things",
+        )
+    )
     return reg
 
 
@@ -137,6 +139,7 @@ def test_build_mcp_handler_signature(adapter):
     assert handler.__doc__ == "Discover what's available"
 
     import inspect
+
     sig = inspect.signature(handler)
     assert "target" in sig.parameters
     # ctx should NOT appear
@@ -147,6 +150,7 @@ def test_build_mcp_handler_search_signature(adapter):
     handler = adapter.build_mcp_handler("search")
 
     import inspect
+
     sig = inspect.signature(handler)
     params = sig.parameters
     assert "query" in params

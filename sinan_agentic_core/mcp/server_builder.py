@@ -88,8 +88,8 @@ class MCPServerBuilder:
         Returns:
             A ``FastMCP`` instance ready to run.
         """
-        FastMCP = _import_fastmcp()
-        ToolAnnotations = _import_tool_annotations()
+        FastMCP = _import_fastmcp()  # noqa: N806 — bound to a class
+        ToolAnnotations = _import_tool_annotations()  # noqa: N806 — bound to a class
 
         mcp = FastMCP(self._server_name, **self._fastmcp_kwargs)
 

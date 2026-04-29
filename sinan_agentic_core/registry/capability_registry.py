@@ -55,9 +55,7 @@ class CapabilityRegistry:
             )
         return self._factories[name]
 
-    def build(
-        self, name: str, config: dict[str, Any] | None = None
-    ) -> Capability:
+    def build(self, name: str, config: dict[str, Any] | None = None) -> Capability:
         """Resolve *name* through the registry and invoke its factory."""
         factory = self.get(name)
         return factory(dict(config) if config else {})

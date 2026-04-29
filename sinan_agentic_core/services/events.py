@@ -11,9 +11,9 @@ Usage:
     helper.emit_agent_start("analyzer", iteration=1)
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
-
+from typing import Any
 
 # -- Event dataclasses -------------------------------------------------------
 
@@ -24,7 +24,7 @@ class BaseEvent:
 
     event_type: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"event_type": self.event_type}
 
 
@@ -36,7 +36,7 @@ class AgentStartEvent(BaseEvent):
     agent_name: str = ""
     iteration: int = 1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "agent_name": self.agent_name,
@@ -52,7 +52,7 @@ class AgentCompleteEvent(BaseEvent):
     agent_name: str = ""
     iteration: int = 1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "agent_name": self.agent_name,
@@ -66,9 +66,9 @@ class ThinkingEvent(BaseEvent):
 
     event_type: str = field(default="thinking", init=False)
     message: str = ""
-    agent_name: Optional[str] = None
+    agent_name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "message": self.message,
@@ -82,10 +82,10 @@ class ToolCallEvent(BaseEvent):
 
     event_type: str = field(default="tool_call", init=False)
     tool_name: str = ""
-    arguments: Dict[str, Any] = field(default_factory=dict)
-    agent_name: Optional[str] = None
+    arguments: dict[str, Any] = field(default_factory=dict)
+    agent_name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "tool_name": self.tool_name,
@@ -100,9 +100,9 @@ class StreamingTextEvent(BaseEvent):
 
     event_type: str = field(default="text_delta", init=False)
     text: str = ""
-    agent_name: Optional[str] = None
+    agent_name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "text": self.text,
@@ -116,11 +116,11 @@ class AnswerEvent(BaseEvent):
 
     event_type: str = field(default="answer", init=False)
     answer: str = ""
-    sources: List[Any] = field(default_factory=list)
-    followup_question: Optional[str] = None
-    confidence: Optional[float] = None
+    sources: list[Any] = field(default_factory=list)
+    followup_question: str | None = None
+    confidence: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "answer": self.answer,
@@ -136,9 +136,9 @@ class ErrorEvent(BaseEvent):
 
     event_type: str = field(default="error", init=False)
     error: str = ""
-    agent_name: Optional[str] = None
+    agent_name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "error": self.error,
@@ -165,7 +165,7 @@ class StreamingHelper:
         helper.emit_answer("42", sources=["data.csv"])
     """
 
-    def __init__(self, event_callback: Optional[Callable] = None):
+    def __init__(self, event_callback: Callable | None = None):
         self.event_callback = event_callback
 
     def emit_agent_start(self, agent_name: str, iteration: int = 1) -> None:
@@ -179,9 +179,9 @@ class StreamingHelper:
     def emit_answer(
         self,
         answer: str,
-        sources: Optional[List[Any]] = None,
-        followup_question: Optional[str] = None,
-        confidence: Optional[float] = None,
+        sources: list[Any] | None = None,
+        followup_question: str | None = None,
+        confidence: float | None = None,
     ) -> None:
         if self.event_callback:
             self.event_callback(

@@ -30,9 +30,10 @@ Usage:
 
 import asyncio
 import logging
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from agents import Agent, Runner, ItemHelpers, Usage
+from agents import Agent, ItemHelpers, Runner, Usage
 from openai.types.responses import ResponseTextDeltaEvent
 
 from ..registry.agent_factory import create_agent_from_registry
@@ -43,9 +44,9 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_agent(
-    agent: Optional[Agent],
-    agent_name: Optional[str],
-    model_override: Optional[str] = None,
+    agent: Agent | None,
+    agent_name: str | None,
+    model_override: str | None = None,
 ) -> Agent:
     """Return a ready-to-run Agent, either pre-built or from the registry.
 
@@ -67,7 +68,7 @@ def _resolve_agent(
     raise ValueError("Provide either 'agent' (pre-built) or 'agent_name' (registry lookup)")
 
 
-def _usage_to_dict(result: Any) -> Dict[str, Any]:
+def _usage_to_dict(result: Any) -> dict[str, Any]:
     """Aggregate token usage from all LLM responses in a run result.
 
     Args:
@@ -96,12 +97,12 @@ def _usage_to_dict(result: Any) -> Dict[str, Any]:
 
 async def chat(
     message: str,
-    agent_name: Optional[str] = None,
+    agent_name: str | None = None,
     session: AgentSession = None,
     context: Any = None,
-    model_override: Optional[str] = None,
-    agent: Optional[Agent] = None,
-) -> Dict[str, Any]:
+    model_override: str | None = None,
+    agent: Agent | None = None,
+) -> dict[str, Any]:
     """Run a single chat turn (non-streaming).
 
     Args:
@@ -124,7 +125,7 @@ async def chat(
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
-        run_kwargs: Dict[str, Any] = {"starting_agent": resolved, "input": history}
+        run_kwargs: dict[str, Any] = {"starting_agent": resolved, "input": history}
         if context is not None:
             run_kwargs["context"] = context
 
@@ -147,13 +148,13 @@ async def chat(
 
 async def chat_with_hooks(
     message: str,
-    agent_name: Optional[str] = None,
+    agent_name: str | None = None,
     session: AgentSession = None,
     context: Any = None,
-    tool_friendly_names: Optional[Dict[str, str]] = None,
-    model_override: Optional[str] = None,
-    agent: Optional[Agent] = None,
-) -> AsyncGenerator[Dict[str, Any], None]:
+    tool_friendly_names: dict[str, str] | None = None,
+    model_override: str | None = None,
+    agent: Agent | None = None,
+) -> AsyncGenerator[dict[str, Any], None]:
     """Chat with real-time tool-call notifications via ``RunHooks``.
 
     Uses ``Runner.run()`` internally — the agent runs to completion, but
@@ -191,8 +192,10 @@ async def chat_with_hooks(
 
         # Run agent with hooks in the background
         async def _run():
-            run_kwargs: Dict[str, Any] = {
-                "starting_agent": resolved, "input": history, "hooks": hooks,
+            run_kwargs: dict[str, Any] = {
+                "starting_agent": resolved,
+                "input": history,
+                "hooks": hooks,
             }
             if context is not None:
                 run_kwargs["context"] = context
@@ -233,12 +236,12 @@ async def chat_with_hooks(
 
 async def chat_streamed(
     message: str,
-    agent_name: Optional[str] = None,
+    agent_name: str | None = None,
     session: AgentSession = None,
     context: Any = None,
-    model_override: Optional[str] = None,
-    agent: Optional[Agent] = None,
-) -> AsyncGenerator[Dict[str, Any], None]:
+    model_override: str | None = None,
+    agent: Agent | None = None,
+) -> AsyncGenerator[dict[str, Any], None]:
     """Chat with token-level streaming via ``Runner.run_streamed()``.
 
     Yields events for every text delta, tool invocation, tool output,
@@ -270,13 +273,13 @@ async def chat_streamed(
         await session.add_items([{"role": "user", "content": message}])
         history = await session.get_items()
 
-        run_kwargs: Dict[str, Any] = {"starting_agent": resolved, "input": history}
+        run_kwargs: dict[str, Any] = {"starting_agent": resolved, "input": history}
         if context is not None:
             run_kwargs["context"] = context
 
         result = Runner.run_streamed(**run_kwargs)
 
-        tools_called: List[str] = []
+        tools_called: list[str] = []
 
         async for event in result.stream_events():
             # Token-level text deltas
@@ -291,11 +294,7 @@ async def chat_streamed(
 
                 if item.type == "tool_call_item":
                     raw = getattr(item, "raw_item", None)
-                    name = (
-                        getattr(item, "name", None)
-                        or getattr(raw, "name", None)
-                        or "unknown"
-                    )
+                    name = getattr(item, "name", None) or getattr(raw, "name", None) or "unknown"
                     tools_called.append(name)
                     yield {
                         "event": "tool_call",

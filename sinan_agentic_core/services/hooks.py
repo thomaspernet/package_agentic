@@ -19,7 +19,7 @@ Usage:
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from agents import RunHooks
 
@@ -42,7 +42,7 @@ class StreamingRunHooks(RunHooks):
     def __init__(
         self,
         event_queue: asyncio.Queue,
-        tool_friendly_names: Optional[Dict[str, str]] = None,
+        tool_friendly_names: dict[str, str] | None = None,
     ):
         """
         Args:
@@ -52,7 +52,7 @@ class StreamingRunHooks(RunHooks):
         """
         self.event_queue = event_queue
         self.tool_friendly_names = tool_friendly_names or {}
-        self.tools_called: List[str] = []
+        self.tools_called: list[str] = []
 
     def _friendly_name(self, tool_name: str) -> str:
         return self.tool_friendly_names.get(tool_name, tool_name.replace("_", " "))
@@ -62,33 +62,39 @@ class StreamingRunHooks(RunHooks):
         friendly = self._friendly_name(tool_name)
         self.tools_called.append(tool_name)
 
-        await self.event_queue.put({
-            "event": "tool_start",
-            "data": {
-                "tool": tool_name,
-                "friendly_name": friendly,
-                "message": f"Fetching {friendly}...",
-            },
-        })
+        await self.event_queue.put(
+            {
+                "event": "tool_start",
+                "data": {
+                    "tool": tool_name,
+                    "friendly_name": friendly,
+                    "message": f"Fetching {friendly}...",
+                },
+            }
+        )
         logger.debug("Tool started: %s", tool_name)
 
     async def on_tool_end(self, context: Any, agent: Any, tool: Any, result: Any) -> None:
         tool_name = getattr(tool, "name", str(tool))
         friendly = self._friendly_name(tool_name)
 
-        await self.event_queue.put({
-            "event": "tool_end",
-            "data": {
-                "tool": tool_name,
-                "friendly_name": friendly,
-                "message": f"Completed {friendly}",
-            },
-        })
+        await self.event_queue.put(
+            {
+                "event": "tool_end",
+                "data": {
+                    "tool": tool_name,
+                    "friendly_name": friendly,
+                    "message": f"Completed {friendly}",
+                },
+            }
+        )
         logger.debug("Tool ended: %s", tool_name)
 
     async def on_agent_start(self, context: Any, agent: Any) -> None:
-        await self.event_queue.put({
-            "event": "thinking",
-            "data": {"message": "Analyzing your question..."},
-        })
+        await self.event_queue.put(
+            {
+                "event": "thinking",
+                "data": {"message": "Analyzing your question..."},
+            }
+        )
         logger.debug("Agent started: %s", getattr(agent, "name", agent))

@@ -18,7 +18,7 @@ import inspect
 import json
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from ..registry.tool_registry import ToolDefinition, ToolRegistry
 from .context_protocol import MCPContextFactory
@@ -115,7 +115,7 @@ def _build_mcp_handler(
             default = inspect.Parameter.empty
         else:
             default = prop_def.get("default", None)
-            py_type = Optional[py_type]  # type: ignore[assignment]
+            py_type = py_type | None  # type: ignore[assignment]
 
         parameters.append(
             inspect.Parameter(

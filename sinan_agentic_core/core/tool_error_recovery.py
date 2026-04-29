@@ -207,8 +207,7 @@ class ToolErrorRecovery(Capability):
     def has_critical_errors(self) -> bool:
         """True if any tool has hit the identical-retry stop threshold."""
         return any(
-            e.identical_count >= self.max_identical_before_stop
-            for e in self._errors.values()
+            e.identical_count >= self.max_identical_before_stop for e in self._errors.values()
         )
 
     def get_error_summary(self) -> dict[str, Any]:
@@ -253,10 +252,12 @@ class ToolErrorRecovery(Capability):
         arguments = self._pending_args.pop(tool_name, "")
         self.record_tool_result(tool_name, result, arguments)
         if self.on_event and self.has_errors:
-            self.on_event({
-                "event": "tool_error_recovery",
-                "data": self.get_error_summary(),
-            })
+            self.on_event(
+                {
+                    "event": "tool_error_recovery",
+                    "data": self.get_error_summary(),
+                }
+            )
 
     def clone(self) -> "ToolErrorRecovery":
         """Return a fresh ``ToolErrorRecovery`` with the same configuration and zeroed state."""
@@ -307,9 +308,7 @@ class ToolErrorRecovery(Capability):
                 )
         raw_last = data.get("last_args", {})
         self._last_args = (
-            {str(k): str(v) for k, v in raw_last.items()}
-            if isinstance(raw_last, dict)
-            else {}
+            {str(k): str(v) for k, v in raw_last.items()} if isinstance(raw_last, dict) else {}
         )
         self._pending_args = {}
 
@@ -320,7 +319,7 @@ class ToolErrorRecovery(Capability):
     def _section_first(self, entry: ToolErrorEntry) -> str:
         """First failure: show error and hint."""
         args_info = f" (called with: {entry.last_args_summary})" if entry.last_args_summary else ""
-        line = f"- {entry.tool_name} returned error: \"{entry.error}\"{args_info}"
+        line = f'- {entry.tool_name} returned error: "{entry.error}"{args_info}'
         if entry.recovery_hint:
             line += f"\n  Recovery hint: {entry.recovery_hint}"
         return line
@@ -329,7 +328,7 @@ class ToolErrorRecovery(Capability):
         """Repeated failure with same args: warn strongly."""
         line = (
             f"- {entry.tool_name} has FAILED {entry.identical_count} TIMES "
-            f"with identical arguments. Error: \"{entry.error}\"\n"
+            f'with identical arguments. Error: "{entry.error}"\n'
             f"  You are repeating the same failing call. "
             f"Change your parameters or use a different tool/approach."
         )
@@ -342,7 +341,7 @@ class ToolErrorRecovery(Capability):
         return (
             f"- STOP: {entry.tool_name} has failed {entry.identical_count} times "
             f"with the same arguments. Do NOT call this tool again.\n"
-            f"  Error was: \"{entry.error}\"\n"
+            f'  Error was: "{entry.error}"\n'
             f"  Move on to your next task, try a completely different approach, "
             f"or return your partial results."
         )
@@ -412,5 +411,3 @@ class ToolErrorRecovery(Capability):
             return ", ".join(parts[:5])  # max 5 params shown
         except (json.JSONDecodeError, TypeError):
             return arguments[:80]
-
-

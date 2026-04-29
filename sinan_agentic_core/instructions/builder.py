@@ -106,7 +106,15 @@ class InstructionBuilder:
         Override to reorder, add, or remove sections.
         Extra sections from extra_sections() are always appended after these.
         """
-        return ["persona", "domain_knowledge", "context_section", "steps", "rules", "output_format", "turn_budget_section"]
+        return [
+            "persona",
+            "domain_knowledge",
+            "context_section",
+            "steps",
+            "rules",
+            "output_format",
+            "turn_budget_section",
+        ]
 
     # ------------------------------------------------------------------ #
     # Assembly

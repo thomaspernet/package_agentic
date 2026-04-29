@@ -8,15 +8,24 @@ Also retains run_agent() for backward compatibility.
 
 import json
 import logging
-from typing import Optional, Dict, Any, List, Callable
+from collections.abc import Callable
+from typing import Any
 
-from agents import Agent, Runner, RunContextWrapper, RunHooks, ItemHelpers, Usage
+from agents import (
+    Agent,
+    ItemHelpers,
+    ModelSettings,
+    RunContextWrapper,
+    RunHooks,
+    Runner,
+    Usage,
+)
 from openai.types.responses import ResponseCompletedEvent, ResponseTextDeltaEvent
 
-from ..session import AgentSession
-from ..models.context import AgentContext
 from ..models import outputs as output_models
-from ..registry import get_agent_registry, get_tool_registry, get_guardrail_registry
+from ..models.context import AgentContext
+from ..registry import get_agent_registry, get_guardrail_registry, get_tool_registry
+from ..session import AgentSession
 from .capabilities import Capability
 from .errors import structured_tool_error
 from .tool_error_recovery import ToolErrorRecovery
@@ -43,11 +52,10 @@ class BaseAgentRunner:
         self.agent_registry = get_agent_registry()
         self.tool_registry = get_tool_registry()
         self.guardrail_registry = get_guardrail_registry()
-        self.last_usage: Optional[Dict[str, Any]] = None
+        self.last_usage: dict[str, Any] | None = None
 
         self.tool_map = {
-            name: tool_def.function
-            for name, tool_def in self.tool_registry._tools.items()
+            name: tool_def.function for name, tool_def in self.tool_registry._tools.items()
         }
 
         self.guardrail_map = {
@@ -56,7 +64,9 @@ class BaseAgentRunner:
         }
 
         logger.debug(f"Loaded {len(self.tool_map)} tools: {list(self.tool_map.keys())}")
-        logger.debug(f"Loaded {len(self.guardrail_map)} guardrails: {list(self.guardrail_map.keys())}")
+        logger.debug(
+            f"Loaded {len(self.guardrail_map)} guardrails: {list(self.guardrail_map.keys())}"
+        )
 
     def setup_context(self, **context_data) -> AgentContext:
         """Setup context with provided data.
@@ -71,8 +81,8 @@ class BaseAgentRunner:
 
     def setup_session(
         self,
-        session_id: Optional[str] = None,
-        initial_history: Optional[list] = None,
+        session_id: str | None = None,
+        initial_history: list | None = None,
     ) -> AgentSession:
         """Setup session for agent execution.
 
@@ -85,6 +95,7 @@ class BaseAgentRunner:
         """
         if session_id is None:
             import uuid
+
             session_id = str(uuid.uuid4())
 
         return AgentSession(session_id=session_id, initial_history=initial_history)
@@ -93,9 +104,9 @@ class BaseAgentRunner:
         self,
         agent_name: str,
         context: Any,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
-        capabilities: Optional[List[Capability]] = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
+        capabilities: list[Capability] | None = None,
     ) -> Agent:
         """Create an agent instance with proper tools and configuration.
 
@@ -166,15 +177,15 @@ class BaseAgentRunner:
         context: Any,
         session: AgentSession,
         streaming: bool = False,
-        on_event: Optional[Callable] = None,
+        on_event: Callable | None = None,
         fallback_on_overflow: bool = False,
-        fallback_prompt_builder: Optional[Callable] = None,
+        fallback_prompt_builder: Callable | None = None,
         max_turns: int = 10,
         input_text: str = "",
-        turn_budget: Optional[TurnBudget] = None,
-        error_recovery: Optional[ToolErrorRecovery] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        turn_budget: TurnBudget | None = None,
+        error_recovery: ToolErrorRecovery | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run an agent and return its final_output directly.
 
@@ -233,14 +244,23 @@ class BaseAgentRunner:
 
         if streaming:
             return await self._execute_streamed(
-                agent_name, context, session, on_event, sdk_max_turns, input_text,
+                agent_name,
+                context,
+                session,
+                on_event,
+                sdk_max_turns,
+                input_text,
                 capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
             )
         elif fallback_on_overflow:
             return await self._execute_with_fallback(
-                agent_name, context, session, sdk_max_turns, input_text,
+                agent_name,
+                context,
+                session,
+                sdk_max_turns,
+                input_text,
                 fallback_prompt_builder,
                 capabilities=capabilities,
                 model_override=model_override,
@@ -248,7 +268,11 @@ class BaseAgentRunner:
             )
         else:
             return await self._execute_basic(
-                agent_name, context, session, sdk_max_turns, input_text,
+                agent_name,
+                context,
+                session,
+                sdk_max_turns,
+                input_text,
                 capabilities=capabilities,
                 model_override=model_override,
                 model_settings_override=model_settings_override,
@@ -261,14 +285,15 @@ class BaseAgentRunner:
         session: AgentSession,
         max_turns: int,
         input_text: str,
-        capabilities: Optional[List[Capability]] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        capabilities: list[Capability] | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run agent via Runner.run() and return final_output."""
         capabilities = capabilities or []
         agent = await self.create_agent(
-            agent_name=agent_name, context=context,
+            agent_name=agent_name,
+            context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
             capabilities=capabilities,
@@ -278,7 +303,7 @@ class BaseAgentRunner:
 
         logger.info(f"Running agent: {agent_name}")
 
-        run_kwargs: Dict[str, Any] = {
+        run_kwargs: dict[str, Any] = {
             "starting_agent": agent,
             "input": input_text,
             "session": session,
@@ -303,10 +328,10 @@ class BaseAgentRunner:
         session: AgentSession,
         max_turns: int,
         input_text: str,
-        fallback_prompt_builder: Optional[Callable],
-        capabilities: Optional[List[Capability]] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        fallback_prompt_builder: Callable | None,
+        capabilities: list[Capability] | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run agent with automatic fallback on context overflow.
 
@@ -316,7 +341,8 @@ class BaseAgentRunner:
         capabilities = capabilities or []
         agent_def = self._get_agent_definition(agent_name)
         agent = await self.create_agent(
-            agent_name=agent_name, context=context,
+            agent_name=agent_name,
+            context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
             capabilities=capabilities,
@@ -339,10 +365,7 @@ class BaseAgentRunner:
 
         except Exception as err:
             err_str = str(err)
-            is_recoverable = (
-                "Max turns" in err_str
-                or "context_length_exceeded" in err_str
-            )
+            is_recoverable = "Max turns" in err_str or "context_length_exceeded" in err_str
             if not is_recoverable:
                 raise
 
@@ -357,14 +380,14 @@ class BaseAgentRunner:
             builder = fallback_prompt_builder or self._default_fallback_prompt_builder
             prompt = builder(instructions, collecting.raw_items, agent_def)
 
-            from openai import AsyncOpenAI
             from agents.models._openai_shared import get_default_openai_key
+            from openai import AsyncOpenAI
 
             api_key = get_default_openai_key()
             client = AsyncOpenAI(api_key=api_key)
 
             output_type = self._resolve_output_type(agent_def.output_dataclass)
-            use_json = output_type and output_type != str
+            use_json = output_type and output_type is not str
 
             # Reuse or build the SDK's AgentOutputSchema so the fallback
             # LLM sees the identical JSON schema (including the "response"
@@ -372,17 +395,19 @@ class BaseAgentRunner:
             output_schema = None
             if use_json:
                 from agents.agent_output import AgentOutputSchema, AgentOutputSchemaBase
+
                 if isinstance(output_type, AgentOutputSchemaBase):
                     output_schema = output_type
                 else:
                     output_schema = AgentOutputSchema(
-                        output_type, strict_json_schema=False,
+                        output_type,
+                        strict_json_schema=False,
                     )
 
-            messages: list[Dict[str, str]] = []
+            messages: list[dict[str, str]] = []
             messages.append({"role": "user", "content": prompt})
 
-            kwargs: Dict[str, Any] = {
+            kwargs: dict[str, Any] = {
                 "model": model_override or agent_def.model or "gpt-4o-mini",
                 "messages": messages,
                 "temperature": 0.3,
@@ -426,12 +451,12 @@ class BaseAgentRunner:
         agent_name: str,
         context: Any,
         session: AgentSession,
-        on_event: Optional[Callable],
+        on_event: Callable | None,
         max_turns: int,
         input_text: str,
-        capabilities: Optional[List[Capability]] = None,
-        model_override: Optional[str] = None,
-        model_settings_override: Optional["ModelSettings"] = None,
+        capabilities: list[Capability] | None = None,
+        model_override: str | None = None,
+        model_settings_override: ModelSettings | None = None,
     ) -> Any:
         """Run agent with token-level streaming via Runner.run_streamed().
 
@@ -440,7 +465,8 @@ class BaseAgentRunner:
         """
         capabilities = capabilities or []
         agent = await self.create_agent(
-            agent_name=agent_name, context=context,
+            agent_name=agent_name,
+            context=context,
             model_override=model_override,
             model_settings_override=model_settings_override,
             capabilities=capabilities,
@@ -454,7 +480,7 @@ class BaseAgentRunner:
 
         logger.info(f"Running agent (streamed): {agent_name}")
 
-        run_kwargs: Dict[str, Any] = {
+        run_kwargs: dict[str, Any] = {
             "starting_agent": agent,
             "input": history,
             "context": context,
@@ -467,7 +493,7 @@ class BaseAgentRunner:
 
         result = Runner.run_streamed(**run_kwargs)
 
-        tools_called: List[str] = []
+        tools_called: list[str] = []
 
         total_input_tokens = 0
         total_output_tokens = 0
@@ -491,39 +517,43 @@ class BaseAgentRunner:
                 item = event.item
                 if item.type == "tool_call_item":
                     raw = getattr(item, "raw_item", None)
-                    name = (
-                        getattr(item, "name", None)
-                        or getattr(raw, "name", None)
-                        or "unknown"
-                    )
+                    name = getattr(item, "name", None) or getattr(raw, "name", None) or "unknown"
                     tools_called.append(name)
                     if on_event:
-                        on_event({
-                            "event": "tool_call",
-                            "data": {
-                                "tool": name,
-                                "message": f"Calling {name.replace('_', ' ')}...",
-                            },
-                        })
+                        on_event(
+                            {
+                                "event": "tool_call",
+                                "data": {
+                                    "tool": name,
+                                    "message": f"Calling {name.replace('_', ' ')}...",
+                                },
+                            }
+                        )
                 elif item.type == "tool_call_output_item":
                     if on_event:
-                        on_event({
-                            "event": "tool_output",
-                            "data": {"output": str(item.output)[:500]},
-                        })
+                        on_event(
+                            {
+                                "event": "tool_output",
+                                "data": {"output": str(item.output)[:500]},
+                            }
+                        )
                 elif item.type == "message_output_item":
                     if on_event:
-                        on_event({
-                            "event": "message_output",
-                            "data": {"text": ItemHelpers.text_message_output(item)},
-                        })
+                        on_event(
+                            {
+                                "event": "message_output",
+                                "data": {"text": ItemHelpers.text_message_output(item)},
+                            }
+                        )
 
             elif event.type == "agent_updated_stream_event":
                 if on_event:
-                    on_event({
-                        "event": "agent_updated",
-                        "data": {"agent": event.new_agent.name},
-                    })
+                    on_event(
+                        {
+                            "event": "agent_updated",
+                            "data": {"agent": event.new_agent.name},
+                        }
+                    )
 
         response = result.final_output
         await session.add_items([{"role": "assistant", "content": response}])
@@ -540,10 +570,12 @@ class BaseAgentRunner:
         self.last_usage = usage
 
         if on_event:
-            on_event({
-                "event": "answer",
-                "data": {"response": response, "tools_called": tools_called, "usage": usage},
-            })
+            on_event(
+                {
+                    "event": "answer",
+                    "data": {"response": response, "tools_called": tools_called, "usage": usage},
+                }
+            )
 
         logger.info(f"Agent '{agent_name}' (streamed) completed, {len(tools_called)} tool calls")
         return response
@@ -553,7 +585,7 @@ class BaseAgentRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _build_usage_dict(usage: Usage) -> Dict[str, Any]:
+    def _build_usage_dict(usage: Usage) -> dict[str, Any]:
         """Convert a Usage object to a plain dict."""
         return {
             "requests": usage.requests,
@@ -569,7 +601,7 @@ class BaseAgentRunner:
         }
 
     @staticmethod
-    def _aggregate_usage(result: Any) -> Dict[str, Any]:
+    def _aggregate_usage(result: Any) -> dict[str, Any]:
         """Aggregate token usage from a non-streaming RunResult."""
         usage = Usage()
         try:
@@ -588,7 +620,7 @@ class BaseAgentRunner:
         session: AgentSession,
         context: Any,
         input_message: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run agent and return structured output with token usage.
 
         .. deprecated::
@@ -647,8 +679,7 @@ class BaseAgentRunner:
         if not agent_def:
             available = self.agent_registry.list_all()
             raise ValueError(
-                f"Agent '{agent_name}' not found in registry. "
-                f"Available agents: {available}"
+                f"Agent '{agent_name}' not found in registry. " f"Available agents: {available}"
             )
         return agent_def
 
@@ -688,7 +719,7 @@ class BaseAgentRunner:
                     context=context,
                 )
                 agent_def = self.agent_registry._agents[tool_name]
-                as_tool_kwargs: Dict[str, Any] = {
+                as_tool_kwargs: dict[str, Any] = {
                     "tool_name": tool_name,
                     "tool_description": agent_def.description,
                     "failure_error_function": structured_tool_error,
@@ -699,7 +730,7 @@ class BaseAgentRunner:
                 budget = agent_def.as_tool_turn_budget
                 if budget:
                     budget.reset()
-                    sub_caps: List[Capability] = [budget]
+                    sub_caps: list[Capability] = [budget]
                     self._apply_dynamic_instructions(tool_agent, sub_caps)
                     tool_agent.tools.append(request_extension_tool)
                     as_tool_kwargs["hooks"] = _CompositeHooks(sub_caps)
@@ -834,7 +865,7 @@ class BaseAgentRunner:
         handoffs: list,
         output_type,
         model_settings,
-        model_override: Optional[str] = None,
+        model_override: str | None = None,
     ) -> dict:
         """Build agent constructor kwargs.
 
@@ -875,10 +906,10 @@ class BaseAgentRunner:
     @staticmethod
     def _build_run_capabilities(
         agent_def: Any,
-        turn_budget: Optional[TurnBudget],
-        error_recovery: Optional[ToolErrorRecovery],
-        on_event: Optional[Callable],
-    ) -> List[Capability]:
+        turn_budget: TurnBudget | None,
+        error_recovery: ToolErrorRecovery | None,
+        on_event: Callable | None,
+    ) -> list[Capability]:
         """Compose the effective capability list for one ``execute()`` call.
 
         Declarative capabilities (``agent_def.capabilities``) are cloned for
@@ -886,7 +917,7 @@ class BaseAgentRunner:
         inspect their state after the run. Every effective capability is
         reset and gets ``on_event`` wired through.
         """
-        effective: List[Capability] = []
+        effective: list[Capability] = []
 
         for cap in agent_def.capabilities:
             clone = cap.clone()
@@ -906,7 +937,7 @@ class BaseAgentRunner:
     @staticmethod
     def _apply_dynamic_instructions(
         agent: Agent,
-        capabilities: List[Capability],
+        capabilities: list[Capability],
     ) -> None:
         """Wrap agent.instructions to merge in capability fragments per turn.
 
@@ -936,8 +967,8 @@ class BaseAgentRunner:
 
     @staticmethod
     def _build_hooks(
-        capabilities: List[Capability],
-    ) -> Optional[RunHooks]:
+        capabilities: list[Capability],
+    ) -> RunHooks | None:
         """Wrap capabilities in a single RunHooks adapter, or None when empty."""
         if not capabilities:
             return None
@@ -950,7 +981,7 @@ class BaseAgentRunner:
     @staticmethod
     def _default_fallback_prompt_builder(
         instructions: str,
-        raw_items: List[Dict[str, Any]],
+        raw_items: list[dict[str, Any]],
         agent_def: Any,
     ) -> str:
         """Default fallback prompt: concatenate instructions + tool outputs.
@@ -976,8 +1007,7 @@ class BaseAgentRunner:
                 tool_outputs.append(str(output)[:2000])
 
         context_str = (
-            "\n\n---\n\n".join(tool_outputs) if tool_outputs
-            else "(no tool outputs collected)"
+            "\n\n---\n\n".join(tool_outputs) if tool_outputs else "(no tool outputs collected)"
         )
         return (
             f"{instructions}\n\n"
@@ -996,7 +1026,7 @@ class _CollectingSessionWrapper:
 
     def __init__(self, real_session: AgentSession) -> None:
         self._real = real_session
-        self.raw_items: List[Dict[str, Any]] = []
+        self.raw_items: list[dict[str, Any]] = []
 
     @property
     def session_id(self) -> str:
@@ -1014,7 +1044,7 @@ class _CollectingSessionWrapper:
     def session_settings(self, value) -> None:
         self._real.session_settings = value
 
-    async def get_items(self, limit: Optional[int] = None) -> list:
+    async def get_items(self, limit: int | None = None) -> list:
         return await self._real.get_items(limit)
 
     async def add_items(self, items: list) -> None:
@@ -1037,7 +1067,7 @@ class _CollectingSessionWrapper:
 def _merge_capability_instructions(
     base: str,
     ctx_wrapper: RunContextWrapper,
-    capabilities: List[Capability],
+    capabilities: list[Capability],
 ) -> str:
     """Append each capability's current instruction fragment to base."""
     parts = [base]
@@ -1057,7 +1087,7 @@ class _CompositeHooks(RunHooks):
     receives them directly.
     """
 
-    def __init__(self, capabilities: List[Capability]) -> None:
+    def __init__(self, capabilities: list[Capability]) -> None:
         self._capabilities = capabilities
 
     async def on_agent_start(self, context, agent):

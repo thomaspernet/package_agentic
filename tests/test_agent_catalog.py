@@ -1,7 +1,6 @@
 """Tests for AgentCatalog — tool groups, conditional tools, agent-level conditions, knowledge."""
 
 import textwrap
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -29,7 +28,6 @@ from sinan_agentic_core.registry.capability_registry import (
     get_capability_registry,
     register_capability,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -309,9 +307,7 @@ class TestAgentYamlEntry:
         assert entry.tools == ["a", "b"]
 
     def test_with_knowledge(self):
-        entry = AgentYamlEntry(
-            model="fast", description="test", knowledge_text="Domain knowledge."
-        )
+        entry = AgentYamlEntry(model="fast", description="test", knowledge_text="Domain knowledge.")
         assert entry.knowledge_text == "Domain knowledge."
 
     def test_no_turn_budget_by_default(self):
@@ -519,9 +515,7 @@ class TestLoadAgentCatalogWithKnowledge:
         kdir.mkdir()
         (kdir / "global.yaml").write_text("content: |\n  Domain info.\n")
 
-        catalog = load_agent_catalog(
-            tmp_path / "agents.yaml", knowledge_dir="knowledge"
-        )
+        catalog = load_agent_catalog(tmp_path / "agents.yaml", knowledge_dir="knowledge")
         entry = catalog.get("agent")
         assert "Domain info." in entry.knowledge_text
 
@@ -655,9 +649,7 @@ class TestParseCapabilities:
             "a",
             [{"name": "turn_budget", "config": {"default_turns": 5}}],
         )
-        assert refs == [
-            CapabilityRef(name="turn_budget", config={"default_turns": 5})
-        ]
+        assert refs == [CapabilityRef(name="turn_budget", config={"default_turns": 5})]
 
     def test_dict_form_without_config(self) -> None:
         refs = _parse_capabilities("a", [{"name": "error_recovery"}])
@@ -665,15 +657,11 @@ class TestParseCapabilities:
 
     def test_dict_form_with_null_config(self) -> None:
         # YAML may parse a missing value as None — must normalize to {}.
-        refs = _parse_capabilities(
-            "a", [{"name": "turn_budget", "config": None}]
-        )
+        refs = _parse_capabilities("a", [{"name": "turn_budget", "config": None}])
         assert refs == [CapabilityRef(name="turn_budget", config={})]
 
     def test_unknown_name_raises(self) -> None:
-        with pytest.raises(
-            CapabilityNotFoundError, match="unknown capability"
-        ):
+        with pytest.raises(CapabilityNotFoundError, match="unknown capability"):
             _parse_capabilities("a", ["does_not_exist"])
 
     def test_missing_name_key_raises(self) -> None:
@@ -703,9 +691,7 @@ class TestCatalogParsesCapabilitiesBlock:
         (tmp_path / "agents.yaml").write_text(yaml_content)
         catalog = load_agent_catalog(tmp_path / "agents.yaml")
         entry = catalog.get("chatbot")
-        assert entry.capabilities == [
-            CapabilityRef(name="turn_budget", config={})
-        ]
+        assert entry.capabilities == [CapabilityRef(name="turn_budget", config={})]
 
     def test_dict_form_in_yaml(self, tmp_path) -> None:
         yaml_content = textwrap.dedent("""\
@@ -742,9 +728,7 @@ class TestCatalogParsesCapabilitiesBlock:
         """)
         (tmp_path / "agents.yaml").write_text(yaml_content)
         catalog = load_agent_catalog(tmp_path / "agents.yaml")
-        with pytest.raises(
-            CapabilityNotFoundError, match="never_registered_capability"
-        ):
+        with pytest.raises(CapabilityNotFoundError, match="never_registered_capability"):
             catalog.get("chatbot")
 
     def test_no_capabilities_block_returns_empty(self, tmp_path) -> None:
@@ -763,9 +747,7 @@ class TestCatalogParsesCapabilitiesBlock:
 
 class TestBuildCapabilities:
     def test_no_capabilities_no_shorthand(self) -> None:
-        entry = AgentYamlEntry(
-            model="fast", description="test", error_recovery=False
-        )
+        entry = AgentYamlEntry(model="fast", description="test", error_recovery=False)
         assert entry.build_capabilities() == []
 
     def test_shorthand_only_turn_budget(self) -> None:
@@ -783,9 +765,7 @@ class TestBuildCapabilities:
         assert built[0].absolute_max == 20
 
     def test_shorthand_only_error_recovery(self) -> None:
-        entry = AgentYamlEntry(
-            model="fast", description="test", error_recovery=True
-        )
+        entry = AgentYamlEntry(model="fast", description="test", error_recovery=True)
         built = entry.build_capabilities()
         assert len(built) == 1
         assert isinstance(built[0], ToolErrorRecovery)
@@ -808,9 +788,7 @@ class TestBuildCapabilities:
         assert built[0].label == "x"
         assert built[0].level == 2
 
-    def test_mixing_shorthand_and_explicit_list(
-        self, spy_capability_registered
-    ) -> None:
+    def test_mixing_shorthand_and_explicit_list(self, spy_capability_registered) -> None:
         entry = AgentYamlEntry(
             model="fast",
             description="test",
@@ -838,11 +816,7 @@ class TestBuildCapabilities:
             model="fast",
             description="test",
             error_recovery=False,
-            capabilities=[
-                CapabilityRef(
-                    name="turn_budget", config={"default_turns": 4}
-                )
-            ],
+            capabilities=[CapabilityRef(name="turn_budget", config={"default_turns": 4})],
         )
         built = entry.build_capabilities()
         assert len(built) == 1
@@ -851,9 +825,7 @@ class TestBuildCapabilities:
 
 
 class TestCatalogIntegrationWithCapabilities:
-    def test_full_yaml_with_mixed_forms(
-        self, tmp_path, spy_capability_registered
-    ) -> None:
+    def test_full_yaml_with_mixed_forms(self, tmp_path, spy_capability_registered) -> None:
         yaml_content = textwrap.dedent(f"""\
             agents:
               chatbot:

@@ -1,17 +1,16 @@
 """Tests for MCPServerBuilder — building FastMCP servers from registry."""
 
 import json
-import pytest
 
+import pytest
 from agents import function_tool
 from agents.tool_context import ToolContext
 
-from sinan_agentic_core.registry.tool_registry import ToolRegistry, ToolDefinition
-from sinan_agentic_core.registry.tool_catalog import ToolCatalog
 from sinan_agentic_core.mcp.context_protocol import MCPContextFactory
-from sinan_agentic_core.mcp.yaml_schema import MCPServerConfig
 from sinan_agentic_core.mcp.server_builder import build_mcp_server
-
+from sinan_agentic_core.mcp.yaml_schema import MCPServerConfig
+from sinan_agentic_core.registry.tool_catalog import ToolCatalog
+from sinan_agentic_core.registry.tool_registry import ToolDefinition, ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -50,32 +49,36 @@ def registry():
     reg = ToolRegistry()
     reg.register(ToolDefinition(name="discover", function=discover, description="Discover"))
     reg.register(ToolDefinition(name="search", function=search, description="Search"))
-    reg.register(ToolDefinition(name="create_page", function=create_page, description="Create page"))
+    reg.register(
+        ToolDefinition(name="create_page", function=create_page, description="Create page")
+    )
     return reg
 
 
 @pytest.fixture
 def catalog():
-    return ToolCatalog(raw_tools={
-        "discover": {
-            "description": "Discover what's available in the graph",
-            "category": "graph_navigation",
-            "mcp": {"expose": True, "annotations": {"readOnlyHint": True}},
-        },
-        "search": {
-            "description": "Search the graph",
-            "category": "graph_navigation",
-            "mcp": {"expose": True, "annotations": {"readOnlyHint": True}},
-        },
-        "create_page": {
-            "description": "Create a new page",
-            "category": "action",
-            "mcp": {
-                "expose": True,
-                "annotations": {"readOnlyHint": False, "destructiveHint": False},
+    return ToolCatalog(
+        raw_tools={
+            "discover": {
+                "description": "Discover what's available in the graph",
+                "category": "graph_navigation",
+                "mcp": {"expose": True, "annotations": {"readOnlyHint": True}},
             },
-        },
-    })
+            "search": {
+                "description": "Search the graph",
+                "category": "graph_navigation",
+                "mcp": {"expose": True, "annotations": {"readOnlyHint": True}},
+            },
+            "create_page": {
+                "description": "Create a new page",
+                "category": "action",
+                "mcp": {
+                    "expose": True,
+                    "annotations": {"readOnlyHint": False, "destructiveHint": False},
+                },
+            },
+        }
+    )
 
 
 @pytest.fixture
