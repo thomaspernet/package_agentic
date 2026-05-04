@@ -61,6 +61,8 @@ htmlcov/
 
 # Claude Code
 .claude/
+!.claude/skills/
+!.claude/skills/**
 CLAUDE.md
 CLAUDE.local.md
 BUGS.md
