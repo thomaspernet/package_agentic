@@ -1047,12 +1047,9 @@ sinan_agentic_core/
 ├── session/
 │   ├── agent_session.py     # In-memory session
 │   └── sqlite_store.py      # SQLite persistence
-├── models/
-│   ├── context.py           # AgentContext
-│   └── outputs/             # ToolOutput, ChatResponse
-├── agents/                  # Your agent definitions
-├── tools/                   # Your tool implementations
-└── guardrails/              # Input validation
+└── models/
+    ├── context.py          # AgentContext
+    └── outputs/            # ToolOutput, ChatResponse
 ```
 
 ## Future Work
