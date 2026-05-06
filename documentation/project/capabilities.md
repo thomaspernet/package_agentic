@@ -235,10 +235,14 @@ The runner merges both sources into a single effective list, calls
 |---|---|
 | `TurnBudget` | Soft turn budget with self-extension. Counts turns via `on_llm_start`, injects budget status via `instructions`, exposes `request_extension` via `tools()`. |
 | `ToolErrorRecovery` | Tracks tool errors, detects repeated identical calls, injects progressive recovery guidance via `instructions`. |
+| `ToolTracer` | Observation-only tracer for non-streaming runs. Emits one line per `on_agent_start` / `on_agent_end` / `on_tool_start` / `on_tool_end` to a configurable `sink` (default `print`), with independent `truncate_args` / `truncate_result` limits and optional wall-clock timestamps. |
 
-Both are first-class `Capability` subclasses. The README sections on
+All three are first-class `Capability` subclasses. The README sections on
 [Turn Budget](../../README.md#turn-budget-soft-turn-management) and
 [Tool Error Recovery](../../README.md#tool-error-recovery) cover usage.
+`ToolTracer` is the recommended built-in for non-streaming observability —
+the streaming path already exposes tool-call events through `on_event`, so
+streaming consumers should keep using that channel.
 
 ## Migration notes
 

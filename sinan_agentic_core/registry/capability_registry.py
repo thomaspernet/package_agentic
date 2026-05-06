@@ -114,3 +114,17 @@ def _build_error_recovery(config: dict[str, Any]) -> Capability:
     cfg = dict(config)
     cfg.setdefault("tool_registry", get_tool_registry())
     return ToolErrorRecovery(**cfg)
+
+
+@register_capability("tool_tracer")
+def _build_tool_tracer(config: dict[str, Any]) -> Capability:
+    """Build a :class:`ToolTracer` from YAML config.
+
+    YAML keys map straight to the constructor: ``truncate_args``,
+    ``truncate_result``, ``include_timestamps``. ``sink`` is not configurable
+    from YAML — it falls back to :func:`print`. Callers wiring a custom sink
+    should attach the tracer in code via ``capabilities=[ToolTracer(...)]``.
+    """
+    from ..core.tool_tracer import ToolTracer
+
+    return ToolTracer(**config)

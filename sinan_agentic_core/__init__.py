@@ -37,7 +37,7 @@ Quick Start:
     )
 """
 
-from .core import BaseAgentRunner, Capability, ToolErrorRecovery, TurnBudget
+from .core import BaseAgentRunner, Capability, ToolErrorRecovery, ToolTracer, TurnBudget
 from .instructions import InstructionBuilder
 from .llm import (
     AzureOpenAIProviderConfig,
@@ -91,6 +91,7 @@ __all__ = [
     "BaseAgentRunner",
     "Capability",
     "ToolErrorRecovery",
+    "ToolTracer",
     "TurnBudget",
     # Instructions
     "InstructionBuilder",

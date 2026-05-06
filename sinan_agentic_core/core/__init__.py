@@ -5,12 +5,14 @@ This module contains fundamental components for agent execution:
 - Capability: Pluggable agent behavior primitive
 - TurnBudget: Soft turn budget with self-extension (Capability)
 - ToolErrorRecovery: Intelligent tool error tracking (Capability)
+- ToolTracer: Observation-only tool-call tracer (Capability)
 """
 
 from .base_runner import BaseAgentRunner
 from .capabilities import Capability
 from .errors import structured_tool_error
 from .tool_error_recovery import ToolErrorRecovery
+from .tool_tracer import ToolTracer
 from .turn_budget import TurnBudget
 
 __all__ = [
@@ -18,5 +20,6 @@ __all__ = [
     "Capability",
     "structured_tool_error",
     "ToolErrorRecovery",
+    "ToolTracer",
     "TurnBudget",
 ]
