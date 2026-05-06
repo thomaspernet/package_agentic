@@ -24,7 +24,7 @@ A framework for building AI agents using the OpenAI Agents SDK. Fork this reposi
 - **Tool Catalog** - Load tool metadata (description, category, recovery hints) from a YAML file
 - **Knowledge Store** - Inject domain knowledge from YAML files into agent system prompts
 - **Structured Agent-as-Tool** - Typed input schemas and structured error handling for sub-agent calls
-- **Capabilities** - Pluggable agent behaviors (turn budgets, error recovery, custom hooks) - write a `Capability` subclass and attach it to an `AgentDefinition`. See [`documentation/project/capabilities.md`](documentation/project/capabilities.md).
+- **Capabilities** - Pluggable agent behaviors (turn budgets, error recovery, tool tracing, custom hooks) - write a `Capability` subclass and attach it to an `AgentDefinition`. See [`documentation/project/capabilities.md`](documentation/project/capabilities.md).
 - **MCP Server** - Expose registered tools as an MCP server (stdio or HTTP) with zero description duplication - all metadata comes from `tools.yaml`
 
 ## Installation
@@ -676,7 +676,7 @@ No manual wiring needed - just set `as_tool_parameters` on your `AgentDefinition
 
 ## Extending sinan-agentic — Custom Capabilities
 
-`Capability` is the extension point for cross-cutting agent behavior. Write a subclass, attach it to an `AgentDefinition`, and the runtime calls its lifecycle hooks (and merges its instruction fragments into the system prompt) for every run. Both `TurnBudget` and `ToolErrorRecovery` are themselves `Capability` subclasses - see them for reference.
+`Capability` is the extension point for cross-cutting agent behavior. Write a subclass, attach it to an `AgentDefinition`, and the runtime calls its lifecycle hooks (and merges its instruction fragments into the system prompt) for every run. `TurnBudget`, `ToolErrorRecovery`, and `ToolTracer` are themselves `Capability` subclasses - see them for reference.
 
 ```python
 from agents import RunContextWrapper, Tool
@@ -823,6 +823,74 @@ After repeated identical failures:
 | `tool_registry` | None | ToolRegistry for looking up `recovery_hint` |
 | `mcp_hints` | `{}` | Dict mapping MCP tool names to hint strings |
 | `max_identical_before_stop` | 3 | Stop threshold for identical-argument retries |
+
+## Tool Tracer (Non-Streaming Observability)
+
+The streaming path emits per-tool events through `on_event`, but non-streaming runs (`streaming=False`, the default) have no equivalent channel. `ToolTracer` is a built-in `Capability` that prints one line per tool call and agent boundary, so non-streaming consumers can see what the agent is doing without leaving the framework or reading `session.history` after the fact.
+
+### Usage
+
+Attach it like any other capability — declarative on the agent, or runtime through `execute()`:
+
+```python
+from sinan_agentic_core import AgentDefinition, ToolTracer, register_agent
+
+register_agent(AgentDefinition(
+    name="research_agent",
+    description="Reads papers and summarizes findings",
+    instructions="...",
+    tools=["search_papers", "fetch_url"],
+    capabilities=[ToolTracer()],
+))
+```
+
+Or pass a custom sink (any `Callable[[str], None]`) — for example, a logger:
+
+```python
+import logging
+
+logger = logging.getLogger("agent.trace")
+tracer = ToolTracer(sink=logger.info, truncate_args=120, truncate_result=300)
+```
+
+Each run emits lines such as:
+
+```text
+[agent start] research_agent
+[tool start] search_papers args={"query": "transformer scaling laws"}
+[tool end] search_papers result=[{"id": "2401.12345", ...
+[agent end] research_agent
+```
+
+### YAML
+
+The `tool_tracer` factory is pre-registered in `CapabilityRegistry`, so YAML agents can opt in with no Python:
+
+```yaml
+agents:
+  research_agent:
+    model: gpt-4o
+    description: Reads papers and summarizes findings
+    capabilities:
+      - name: tool_tracer
+        config:
+          truncate_args: 120
+          truncate_result: 300
+          include_timestamps: true
+```
+
+`sink` is not configurable from YAML — it falls back to `print`. To pipe trace lines into a logger, attach the tracer in code instead.
+
+### Configuration reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `sink` | `print` | One-arg callable receiving each line |
+| `truncate_args` | `200` | Maximum length of the rendered `args` string (`0` disables) |
+| `truncate_result` | `500` | Maximum length of the rendered `result` string (`0` disables) |
+| `include_timestamps` | `False` | Prepend `HH:MM:SS.mmm` wall-clock prefix to every line |
+
+`ToolTracer` is observation-only and never mutates state used by the agent, so it composes cleanly with `TurnBudget` and `ToolErrorRecovery` on the same agent.
 
 ## Turn Budget (Soft Turn Management)
 
@@ -1022,6 +1090,7 @@ sinan_agentic_core/
 │   │   └── base.py               # Capability base class + lifecycle hooks
 │   ├── errors.py                 # structured_tool_error for agent-as-tool failures
 │   ├── tool_error_recovery.py    # ToolErrorRecovery capability
+│   ├── tool_tracer.py            # ToolTracer capability (non-streaming tool-call tracing)
 │   ├── turn_budget.py            # TurnBudget capability + TurnBudgetHooks
 │   └── turn_budget_tool.py       # request_extension tool (agent self-approval)
 ├── instructions/
