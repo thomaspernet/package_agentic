@@ -1,3 +1,9 @@
+---
+mandatory_for:
+  skills: [check-code-quality]
+  rules: [backend]
+---
+
 # Python Completion Checklist
 
 Run the [general checklist](../checklist) first, then this one.
@@ -13,9 +19,10 @@ Run the [general checklist](../checklist) first, then this one.
 
 ## Architecture
 
-- [ ] Interfaces (ABCs) live next to the abstractions they define; concrete implementations depend on interfaces, not vice versa. → [Interface-First Design](architecture#interface-first-design)
-- [ ] Dependencies injected via constructor. No global singletons reached through module-level state. → [Dependency Injection](architecture#dependency-injection)
-- [ ] Module organisation prefers depth over flat dumps; every package has explicit `__all__` in `__init__.py`. → [Module Organization](architecture#module-organization)
+- [ ] Business logic in services only. API endpoints are thin (parse request → call service → return response). → [Layered Architecture](architecture#layered-architecture)
+- [ ] Repository interfaces in domain layer (ABC). Implementations in infrastructure layer. → [Interface-First Design](architecture#interface-first-design)
+- [ ] Import direction is strictly downward: API → Application → Infrastructure → Domain. No upward imports. → [Layered Architecture](architecture#layered-architecture)
+- [ ] All database entity names (node labels, table names, relationship types) use constants/enums, never string literals. → [No String Literals in Queries](architecture#no-string-literals-in-queries)
 
 ## Patterns
 
@@ -34,9 +41,11 @@ Run the [general checklist](../checklist) first, then this one.
 - [ ] Logging uses `%s` parameterized format, not f-strings. → [Logging](conventions#logging)
 - [ ] `__init__.py` has explicit `__all__`. No star imports. → [\_\_init\_\_.py Pattern](conventions#__init__py-pattern)
 
-## Secrets
+## Security
 
-- [ ] No API keys, tokens, or credentials in code or YAML. Always loaded from environment (`OPENAI_API_KEY`, etc.).
+- [ ] No secrets in code. All from environment variables. → [Secrets Management](security#secrets-management)
+- [ ] Paths built with `pathlib.Path`, never string concatenation. → [Input Validation](security#input-validation)
+- [ ] Upload sizes validated before reading full payload. → [Input Validation](security#input-validation)
 
 ## Observability
 

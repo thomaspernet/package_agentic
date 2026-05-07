@@ -1,3 +1,9 @@
+---
+mandatory_for:
+  skills: [fix-issue, feat-issue]
+  rules: [backend]
+---
+
 # Python Patterns
 
 Reusable patterns for modern Python applications. Framework-agnostic where possible.
@@ -85,6 +91,19 @@ Minimal exception types. No deep custom hierarchies unless genuinely needed.
 | `ValueError` | Client error — bad input, missing entity | 400 |
 | `RuntimeError` | Server error — unexpected failure | 500 |
 
+### Global exception handler
+
+```python
+@app.exception_handler(ValueError)
+async def value_error_handler(request, exc):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request, exc):
+    logger.error("Unexpected error", exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+```
+
 ### Exception chaining
 
 Always preserve the original cause:
@@ -106,6 +125,23 @@ def require_entity(value: T | None, name: str, identifier: str) -> T:
 
 # Usage — one-liner guard
 entity = require_entity(await repo.get_by_id(uuid), "Entity", uuid)
+```
+
+### Decorator for endpoint error wrapping
+
+```python
+from functools import wraps
+
+def handle_service_errors(fn):
+    @wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except ValueError:
+            raise  # let global handler convert to 400
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error in {fn.__name__}") from e
+    return wrapper
 ```
 
 ---
