@@ -1,3 +1,8 @@
+---
+mandatory_for:
+  skills: [check-code-quality]
+---
+
 # Python Testing
 
 ## pytest Ecosystem

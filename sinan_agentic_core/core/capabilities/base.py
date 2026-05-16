@@ -115,6 +115,43 @@ class Capability:
         """Called immediately after the model returns a response."""
         return None
 
+    def on_fallback_start(
+        self,
+        ctx: RunContextWrapper[Any],
+        prompt: str,
+        collected_items: list[Any],
+    ) -> None:
+        """Called immediately before the summarize-and-extract recovery LLM call.
+
+        Fires only on the recovery branch of ``_execute_with_fallback`` — when
+        the agent loop has raised a recoverable overflow (``Max turns`` /
+        ``context_length_exceeded``) and the runner is about to send a single
+        condensed chat-completions request that bypasses ``Runner.run``.
+
+        ``prompt`` is the fully-rendered recovery prompt; ``collected_items``
+        is the list of raw session items gathered during the failed agent
+        loop (the same list passed to the fallback-prompt builder). Tool-event
+        hooks (``on_tool_start`` / ``on_tool_end``) are intentionally **not**
+        fired on this path — no tools are invoked.
+        """
+        return None
+
+    def on_fallback_end(
+        self,
+        ctx: RunContextWrapper[Any],
+        response: str | None,
+        usage: dict[str, Any] | None,
+    ) -> None:
+        """Called immediately after the recovery LLM call returns.
+
+        Fires only on the recovery branch of ``_execute_with_fallback``,
+        before any output-type parsing. ``response`` is the raw assistant
+        message content from the chat-completions call (``None`` if the
+        provider returned no content); ``usage`` is the token-usage dict
+        captured from the response (``None`` if the provider omitted it).
+        """
+        return None
+
     def reset(self) -> None:
         """Reset mutable state. Called at the start of each ``execute()`` call."""
         return None

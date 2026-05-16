@@ -1,3 +1,9 @@
+---
+mandatory_for:
+  skills: [fix-issue, feat-issue]
+  rules: [backend]
+---
+
 # Python Typing
 
 ## Strict Type Checking
