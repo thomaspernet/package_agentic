@@ -361,14 +361,20 @@ class BaseAgentRunner:
         collecting = _CollectingSessionWrapper(session)
         logger.info(f"Running agent with fallback: {agent_name}")
 
+        run_kwargs: dict[str, Any] = {
+            "starting_agent": agent,
+            "input": input_text,
+            "session": collecting,
+            "context": context,
+            "max_turns": max_turns,
+        }
+
+        hooks = self._build_hooks(capabilities)
+        if hooks:
+            run_kwargs["hooks"] = hooks
+
         try:
-            run_result = await Runner.run(
-                starting_agent=agent,
-                input=input_text,
-                session=collecting,
-                context=context,
-                max_turns=max_turns,
-            )
+            run_result = await Runner.run(**run_kwargs)
             self.last_usage = self._aggregate_usage(run_result)
             logger.info(f"Agent '{agent_name}' completed successfully")
             return run_result.final_output

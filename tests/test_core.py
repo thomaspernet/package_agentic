@@ -659,6 +659,72 @@ class TestExecuteWithFallback:
 
         assert result == "Plain text fallback"
 
+    async def test_normal_path_wires_capability_hooks(self, runner, mock_run_result):
+        """Capability lifecycle hooks fire on the normal-success fallback path."""
+        from sinan_agentic_core.core.base_runner import _CompositeHooks
+        from sinan_agentic_core.core.capabilities import Capability
+
+        recorded_tool_starts: list[str] = []
+
+        class _RecorderCapability(Capability):
+            def on_tool_start(self, ctx, tool, args):
+                recorded_tool_starts.append(getattr(tool, "name", "unknown"))
+
+        recorder = _RecorderCapability()
+        ctx = AgentContext(database_connector=Mock())
+        session = AgentSession(session_id="test")
+
+        captured_hooks: dict[str, object] = {}
+
+        async def _fake_run(**kwargs):
+            captured_hooks["hooks"] = kwargs.get("hooks")
+            hooks = kwargs.get("hooks")
+            if hooks is not None:
+                fake_tool = Mock()
+                fake_tool.name = "test_tool"
+                fake_ctx = Mock()
+                fake_ctx.tool_arguments = ""
+                await hooks.on_tool_start(fake_ctx, Mock(), fake_tool)
+            return mock_run_result
+
+        with (
+            patch.object(runner, "create_agent", new_callable=AsyncMock, return_value=Mock()),
+            patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls,
+        ):
+            mock_runner_cls.run = AsyncMock(side_effect=_fake_run)
+
+            result = await runner._execute_with_fallback(
+                "basic_agent",
+                ctx,
+                session,
+                10,
+                "hello",
+                None,
+                capabilities=[recorder],
+            )
+
+        assert result == "Test response"
+        assert isinstance(captured_hooks["hooks"], _CompositeHooks)
+        assert recorded_tool_starts == ["test_tool"]
+
+    async def test_normal_path_omits_hooks_when_no_capabilities(self, runner, mock_run_result):
+        """No hooks kwarg is passed when there are no capabilities."""
+        ctx = AgentContext(database_connector=Mock())
+        session = AgentSession(session_id="test")
+
+        with (
+            patch.object(runner, "create_agent", new_callable=AsyncMock, return_value=Mock()),
+            patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls,
+        ):
+            mock_runner_cls.run = AsyncMock(return_value=mock_run_result)
+
+            await runner._execute_with_fallback(
+                "basic_agent", ctx, session, 10, "hello", None, capabilities=[]
+            )
+
+            call_kwargs = mock_runner_cls.run.call_args.kwargs
+            assert "hooks" not in call_kwargs
+
 
 # ------------------------------------------------------------------ #
 # _default_fallback_prompt_builder
