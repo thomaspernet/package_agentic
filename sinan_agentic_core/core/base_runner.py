@@ -361,14 +361,20 @@ class BaseAgentRunner:
         collecting = _CollectingSessionWrapper(session)
         logger.info(f"Running agent with fallback: {agent_name}")
 
+        run_kwargs: dict[str, Any] = {
+            "starting_agent": agent,
+            "input": input_text,
+            "session": collecting,
+            "context": context,
+            "max_turns": max_turns,
+        }
+
+        hooks = self._build_hooks(capabilities)
+        if hooks:
+            run_kwargs["hooks"] = hooks
+
         try:
-            run_result = await Runner.run(
-                starting_agent=agent,
-                input=input_text,
-                session=collecting,
-                context=context,
-                max_turns=max_turns,
-            )
+            run_result = await Runner.run(**run_kwargs)
             self.last_usage = self._aggregate_usage(run_result)
             logger.info(f"Agent '{agent_name}' completed successfully")
             return run_result.final_output
@@ -389,6 +395,9 @@ class BaseAgentRunner:
 
             builder = fallback_prompt_builder or self._default_fallback_prompt_builder
             prompt = builder(instructions, collecting.raw_items, agent_def)
+
+            for cap in capabilities:
+                cap.on_fallback_start(ctx_wrapper, prompt, collecting.raw_items)
 
             from agents.models._openai_shared import get_default_openai_key
             from openai import AsyncOpenAI
@@ -437,8 +446,9 @@ class BaseAgentRunner:
             content = response.choices[0].message.content
 
             # Capture fallback usage from the direct LLM call
+            fallback_usage: dict[str, Any] | None = None
             if response.usage:
-                self.last_usage = {
+                fallback_usage = {
                     "requests": 1,
                     "input_tokens": response.usage.prompt_tokens or 0,
                     "output_tokens": response.usage.completion_tokens or 0,
@@ -446,6 +456,10 @@ class BaseAgentRunner:
                     "input_tokens_details": {"cached_tokens": 0},
                     "output_tokens_details": {"reasoning_tokens": 0},
                 }
+                self.last_usage = fallback_usage
+
+            for cap in capabilities:
+                cap.on_fallback_end(ctx_wrapper, content, fallback_usage)
 
             if not use_json:
                 return content

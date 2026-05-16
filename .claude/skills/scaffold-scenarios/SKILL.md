@@ -17,6 +17,14 @@ issue bodies — bind-on-sync rewrites
 once the real test exists. To add or remove draft lines on the issue
 itself, use `/edit-acceptance-scenarios`.
 
+## Mandatory reads — do this first
+
+Run:
+
+    devwatch --repo "$REPO" doc-read --skill scaffold-scenarios --display
+
+The output contains every doc you must read; treat it as if you opened each file directly. Do not proceed with the skill body until done. The mandatory-reads include the authoritative `acceptance-scenarios` doc — the contract for the `Links:` section, the `<suite>::<file>::<title>` coordinate, the title-stability invariant, and the draft lifecycle this skill is one step of.
+
 ## Parse arguments
 
 ```bash
@@ -66,9 +74,15 @@ fi
 
 For each pending draft:
 
-1. Suggest a default spec path (`e2e/<slug>.spec.ts` under the
+1. Suggest a default spec path (`<slug>.spec.ts` directly under the
    configured suite cwd). The suite cwd lives in
-   `~/.devwatch/projects/<project>.yaml` under `repos[].scenarios.cwd`.
+   `~/.devwatch/projects/<project>.yaml` under `repos[].scenarios.cwd`
+   and is the directory where `npx playwright test --list` is invoked,
+   so file paths Playwright reports are already relative to it.
+   Different watched repos place specs differently (some under `e2e/`,
+   some under `tests/`, some directly under the suite cwd) — pick the
+   default that matches your Playwright config and override per draft
+   when needed.
 2. Allow the user to override the path before any file is written.
 3. Append a `test.skip("<title>", async ({ page }) => { /* TODO #N */ });`
    block to the chosen file, creating the file (with the right import)
@@ -122,7 +136,12 @@ import_line = "import { test } from '@playwright/test';\n"
 scaffolded = []
 for draft in pending:
     title = draft["title"]
-    suggested = base_dir / "e2e" / f"{slugify(title)}.spec.ts"
+    # Default to ``<suite_cwd>/<slug>.spec.ts``. The suite cwd is
+    # already the directory Playwright runs from, so file paths
+    # in the catalogue are relative to it; an extra ``e2e/`` segment
+    # would mismatch repos whose Playwright config places specs
+    # elsewhere (#1769).
+    suggested = base_dir / f"{slugify(title)}.spec.ts"
     spec_path = Path(os.environ.get("SCAFFOLD_OVERRIDE_PATH") or suggested)
     spec_path.parent.mkdir(parents=True, exist_ok=True)
     if spec_path.exists():

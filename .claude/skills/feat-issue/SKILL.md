@@ -4,7 +4,13 @@ description: "Read GitHub issue #$ARGUMENTS, create a branch, and implement the 
 
 Implement a new feature. Read the issue, plan, implement, test, commit, push.
 
-GitHub writing rules: `docs:general/github-writing`.
+## Mandatory reads — do this first
+
+Run:
+
+    devwatch --repo "$REPO" doc-read --skill feat-issue --display
+
+The output contains every doc you must read; treat it as if you opened each file directly. Do not proceed with the skill body until done.
 
 Read this repo's CLAUDE.md for architecture and rules.
 
@@ -29,8 +35,7 @@ Pass `--repo "$REPO"` to every `devwatch` command to ensure the correct repo is 
 
 ## Context loading
 
-- Read this repo's CLAUDE.md for architecture and rules.
-- Read the repo's coding principles docs if they exist (check CLAUDE.md for paths).
+The mandatory reads (above) loaded every coding-principle doc this skill needs. Read this repo's CLAUDE.md for architecture and rules.
 
 ## Lineage pre-read
 
@@ -51,7 +56,7 @@ report, follow the PR — that is what is actually in production.
 issue body indicates this is a sub-feature — phrases like *"sub-feature of #N"*,
 *"part of epic #N"*, *"extends #N"*, or *"child-of #N"* — surface this to the
 user once before coding: *"This issue mentions #N and has no `child-of` link.
-Link it before I start? Run: `devwatch link <ISSUE> --to N --type child-of`"*
+Link it before I start? Run: `devwatch link <ISSUE> N --type child-of`"*
 Do not auto-create the link. Proceed if the user says no — weaker mentions
 like *"related to #N"* or *"see #N"* are not parent relationships.
 
@@ -172,6 +177,46 @@ When the run belongs to a workflow step, `agent-update --branch` also updates `w
 4. Write tests for every new function/endpoint.
 5. Run tests.
 
+## No-op terminal path (#2103)
+
+If — after reading the issue, the lineage, and the existing code — you
+conclude **no implementation is needed** (the feature is already in
+production via a sibling PR, the request duplicates a closed issue, the
+acceptance criteria are already met by existing behaviour, or the issue
+is invalid), do NOT exit silently or take the success path. Both produce
+wedged runs:
+
+- Exiting silently leaves the agent run as ``closed``, which the
+  dispatcher reads as a structural failure and halts the entire workflow.
+- Faking a commit and taking the ``ready_for_review`` path is dishonest
+  and ships an empty PR.
+
+Take the no-op terminal path instead:
+
+1. Close the GitHub issue with a comment explaining why:
+
+   ```bash
+   gh issue close <ISSUE> --repo "$REPO" --comment "Closing as <reason>: <one-line explanation, link to the duplicate/shipping PR/commit>."
+   ```
+
+2. Report completion as a no-op (no branch, no commits, no files):
+
+   ```bash
+   devwatch --repo "$REPO" agent-update \
+     --run-id <RUN_ID> \
+     --status completed \
+     --summary "no-op: <one-line reason — already shipped by #N / duplicate of #N / acceptance criteria already met by <commit> / invalid because <reason>>"
+   ```
+
+The dispatcher detects the closed GitHub issue at IMPLEMENT-SUCCESS time,
+skips the rest of this run's actions (quality / docs / PR), marks the
+workflow step done, and advances the chain to the next child. The
+workflow stays ``active``.
+
+If RUN_ID is unavailable, fall back to ``--issue <ISSUE>``. Do not call
+``agent-comment`` for the no-op — the close comment already explains the
+outcome on the issue.
+
 ## Wrap up
 
 After implementation is complete and tests pass:
@@ -183,7 +228,7 @@ git commit -m "feat(scope): <description> (closes #<ISSUE>)"
 git push -u origin <your-branch-name>
 ```
 
-2. Read `docs:general/github-writing` — banned tokens, no personal data, per-artifact skeletons. Apply to every title, body, and comment below.
+2. Apply the GitHub-writing rules from the mandatory-reads block (banned tokens, no personal data, per-artifact skeletons) to every title, body, and comment below.
 
 3. Record completion (use `--run-id` if available, fall back to `--issue`):
 ```bash

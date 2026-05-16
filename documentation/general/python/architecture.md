@@ -1,3 +1,9 @@
+---
+mandatory_for:
+  skills: [fix-issue, feat-issue]
+  rules: [backend]
+---
+
 # Python Backend Architecture
 
 Guidelines for structuring Python backend applications using layered architecture, dependency inversion, and clean module organization.
@@ -96,6 +102,21 @@ class UserService:
         return created
 ```
 
+### Framework-Level Injection
+
+Web framework dependency injection (e.g., FastAPI's `Depends()`) handles HTTP-level concerns: authentication, request context, database sessions. Keep this at the API layer only.
+
+```python
+# api/endpoints/user_endpoints.py
+from fastapi import APIRouter, Depends
+
+router = APIRouter()
+
+@router.get("/users/{uuid}")
+def get_user(uuid: str, service: UserService = Depends(get_user_service)):
+    return service.get_user(uuid)
+```
+
 ### Singleton and Proxy Patterns
 
 Expensive resources (database connections, event publishers) use the singleton pattern -- instantiated once at startup, shared across the application.
@@ -179,3 +200,98 @@ Rules:
 - No star imports (`from module import *`) in production code.
 - Group related concepts into sub-packages: `services/document/`, `services/user/`.
 
+## Standard CRUD Interface
+
+Repository interfaces follow a consistent method signature pattern:
+
+| Method | Signature | Returns |
+|---|---|---|
+| `create` | `create(entity: T) -> T` | Created entity |
+| `get_by_uuid` | `get_by_uuid(uuid: str) -> T \| None` | Entity or None |
+| `get_by_<field>` | `get_by_email(email: str) -> T \| None` | Entity or None |
+| `get_all` | `get_all(scope: str) -> list[T]` | List of entities |
+| `update` | `update(entity: T) -> T` | Updated entity |
+| `delete` | `delete(uuid: str) -> None` | Nothing |
+| `count` | `count(scope: str) -> int` | Count |
+
+The interface lives in the domain layer. The implementation lives in infrastructure. The service instantiates the concrete repository in its constructor (or receives it via injection).
+
+## No String Literals in Queries
+
+Every entity name, table name, collection name, node label, or relationship type that appears in a database query must come from a constant or enum — never a raw string literal. This applies regardless of database technology (SQL, Cypher, MongoDB, Elasticsearch).
+
+Define constants in the domain layer (e.g., `domain/constants/`). Repository implementations import and use them:
+
+```python
+# domain/constants/schema.py
+from enum import StrEnum
+
+class NodeType(StrEnum):
+    USER = "User"
+    DOCUMENT = "Document"
+    TAG = "Tag"
+
+class RelType(StrEnum):
+    HAS_TAG = "HAS_TAG"
+    BELONGS_TO = "BELONGS_TO"
+
+# For SQL:
+class TableName(StrEnum):
+    USERS = "users"
+    DOCUMENTS = "documents"
+```
+
+```python
+# Good — constants
+from domain.constants.schema import NodeType
+
+result = connector.execute(
+    f"MATCH (u:{NodeType.USER} {{uuid: $uuid}}) RETURN u",
+    uuid=uuid,
+)
+
+# Bad — string literals
+result = connector.execute(
+    "MATCH (u:User {uuid: $uuid}) RETURN u",  # "User" is a magic string
+    uuid=uuid,
+)
+```
+
+Why this matters:
+- Renaming an entity updates one constant, not every query that mentions it.
+- Typos in constants fail at import time. Typos in strings fail at query time (or silently return empty results).
+- A grep for `NodeType.USER` finds every query that touches users. A grep for `"User"` finds everything — logs, comments, unrelated strings.
+
+This is an instance of Pillar 6 (Decouple Everything) applied to database queries — the query does not hardcode knowledge about the schema; it references the schema through a constant.
+
+### Reserved Keyword Collisions
+
+Some database engines (notably LadybugDB) fail when property names collide with query language reserved keywords. For example, `a.order` fails because `ORDER` is a Cypher reserved keyword. Either escape with backticks (`` a.`order` ``) or, better, avoid the collision entirely by naming the property `sort_order` or `display_order`. This applies to any property matching a reserved keyword (`ORDER`, `MATCH`, `RETURN`, `WHERE`, `SET`, `DELETE`, etc.).
+
+## Repository Implementation
+
+```python
+# infrastructure/graph/repositories/graph_user_repository.py
+from domain.constants.schema import NodeType
+from domain.repositories.user_repository import IUserRepository
+
+class GraphUserRepository(IUserRepository):
+    def __init__(self, connector: DatabaseConnector) -> None:
+        self._connector = connector
+
+    def get_by_uuid(self, uuid: str) -> User | None:
+        result = self._connector.execute(
+            f"MATCH (u:{NodeType.USER} {{uuid: $uuid}}) RETURN u",
+            uuid=uuid,
+        )
+        if not result:
+            return None
+        return User.from_record(result[0])
+
+    def create(self, user: User) -> User:
+        self._connector.execute(
+            f"CREATE (u:{NodeType.USER} {{uuid: $uuid, name: $name, email: $email}})",
+            uuid=user.uuid, name=user.name, email=user.email,
+        )
+        return user
+```
