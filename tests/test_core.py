@@ -707,6 +707,113 @@ class TestExecuteWithFallback:
         assert isinstance(captured_hooks["hooks"], _CompositeHooks)
         assert recorded_tool_starts == ["test_tool"]
 
+    async def test_recovery_branch_fires_fallback_hooks(self, runner):
+        """Recovery branch invokes on_fallback_start / on_fallback_end on capabilities.
+
+        Tool-event hooks must NOT fire on the recovery branch (no tools run).
+        """
+        from sinan_agentic_core.core.capabilities import Capability
+
+        class _RecorderCapability(Capability):
+            def __init__(self):
+                self.starts: list[tuple[str, list]] = []
+                self.ends: list[tuple[str | None, dict | None]] = []
+                self.tool_starts: list[str] = []
+                self.tool_ends: list[str] = []
+
+            def on_fallback_start(self, ctx, prompt, collected_items):
+                self.starts.append((prompt, list(collected_items)))
+
+            def on_fallback_end(self, ctx, response, usage):
+                self.ends.append((response, usage))
+
+            def on_tool_start(self, ctx, tool, args):
+                self.tool_starts.append(getattr(tool, "name", "?"))
+
+            def on_tool_end(self, ctx, tool, result):
+                self.tool_ends.append(str(result))
+
+        recorder = _RecorderCapability()
+        ctx = AgentContext(database_connector=Mock())
+        session = AgentSession(session_id="test")
+
+        mock_completion = Mock()
+        mock_completion.choices = [Mock()]
+        mock_completion.choices[0].message.content = "Rescued output"
+        mock_completion.usage = Mock(prompt_tokens=100, completion_tokens=20, total_tokens=120)
+
+        with (
+            patch.object(runner, "create_agent", new_callable=AsyncMock, return_value=Mock()),
+            patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls,
+            patch("openai.AsyncOpenAI") as mock_openai,
+        ):
+            mock_runner_cls.run = AsyncMock(side_effect=RuntimeError("Max turns exceeded"))
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+            mock_openai.return_value = mock_client
+
+            result = await runner._execute_with_fallback(
+                "basic_agent",
+                ctx,
+                session,
+                10,
+                "hello",
+                None,
+                capabilities=[recorder],
+            )
+
+        assert result == "Rescued output"
+        assert len(recorder.starts) == 1
+        prompt, collected_items = recorder.starts[0]
+        assert "You are a basic agent" in prompt
+        assert isinstance(collected_items, list)
+        assert len(recorder.ends) == 1
+        response, usage = recorder.ends[0]
+        assert response == "Rescued output"
+        assert usage is not None
+        assert usage["input_tokens"] == 100
+        assert usage["output_tokens"] == 20
+        # Tool-event hooks must NOT fire on the recovery branch.
+        assert recorder.tool_starts == []
+        assert recorder.tool_ends == []
+
+    async def test_normal_success_path_does_not_fire_fallback_hooks(self, runner, mock_run_result):
+        """When Runner.run succeeds, fallback hooks must not fire."""
+        from sinan_agentic_core.core.capabilities import Capability
+
+        class _Recorder(Capability):
+            def __init__(self):
+                self.start_calls = 0
+                self.end_calls = 0
+
+            def on_fallback_start(self, ctx, prompt, collected_items):
+                self.start_calls += 1
+
+            def on_fallback_end(self, ctx, response, usage):
+                self.end_calls += 1
+
+        recorder = _Recorder()
+        ctx = AgentContext(database_connector=Mock())
+        session = AgentSession(session_id="test")
+
+        with (
+            patch.object(runner, "create_agent", new_callable=AsyncMock, return_value=Mock()),
+            patch("sinan_agentic_core.core.base_runner.Runner") as mock_runner_cls,
+        ):
+            mock_runner_cls.run = AsyncMock(return_value=mock_run_result)
+            await runner._execute_with_fallback(
+                "basic_agent",
+                ctx,
+                session,
+                10,
+                "hello",
+                None,
+                capabilities=[recorder],
+            )
+
+        assert recorder.start_calls == 0
+        assert recorder.end_calls == 0
+
     async def test_normal_path_omits_hooks_when_no_capabilities(self, runner, mock_run_result):
         """No hooks kwarg is passed when there are no capabilities."""
         ctx = AgentContext(database_connector=Mock())

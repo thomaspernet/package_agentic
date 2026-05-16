@@ -35,6 +35,8 @@ The full surface lives in `sinan_agentic_core/core/capabilities/base.py`:
 | `on_tool_end(ctx, tool, result)` | Tool finished |
 | `on_llm_start(ctx, agent, system_prompt, input_items)` | Model call begins |
 | `on_llm_end(ctx, agent, response)` | Model call returns |
+| `on_fallback_start(ctx, prompt, collected_items)` | Recovery branch of `_execute_with_fallback` is about to send its condensed chat-completions call (after the agent loop raised `Max turns` / `context_length_exceeded`) |
+| `on_fallback_end(ctx, response, usage)` | Recovery LLM call returned, before output-type parsing |
 | `tools()` | Extra tools the capability exposes to the agent |
 | `reset()` | Called at the start of every `execute()` - clear mutable state |
 | `clone()` | Per-run copy; default is `copy.deepcopy(self)` |
@@ -77,6 +79,27 @@ final_output (caps still hold post-run state for inspection)
 The cloning rule is the key isolation guarantee: declarative capabilities on
 `AgentDefinition` are templates, the runner clones them per call, so two
 concurrent runs never share `turns_used` or error history.
+
+### Fallback recovery hooks
+
+`fallback_on_overflow=True` enables a recovery branch in `_execute_with_fallback`
+that catches `Max turns` / `context_length_exceeded` from the agent loop and
+makes a single condensed chat-completions call to rescue the run. That call
+bypasses `Runner.run`, so the SDK lifecycle hooks (`on_agent_start`,
+`on_tool_start`, etc.) do not fire on it. Two dedicated hooks cover the gap:
+
+- `on_fallback_start(ctx, prompt, collected_items)` — fires after the recovery
+  prompt is built and before the chat-completions request is sent. Use it to
+  audit-log the fallback prompt, count fallbacks, or capture the gathered tool
+  outputs.
+- `on_fallback_end(ctx, response, usage)` — fires after the recovery call
+  returns and before any output-type parsing. Use it to inspect or validate
+  rescued outputs (typically the most interesting runs — they nearly failed).
+
+Tool-event hooks are intentionally **not** fired on the recovery branch: no
+tools are invoked there, so dispatching them would be misleading. The hooks
+also do not fire on the normal-success path of `_execute_with_fallback` — only
+when the recovery branch actually runs.
 
 ## Writing a custom capability
 
